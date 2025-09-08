@@ -49,7 +49,7 @@ h help:
 
 setup-runpod: ## Add ~/.local/bin to path for RunPod Ubuntu systems:
 	@echo "Setting up for RunPod ..."
-	echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+	echo 'export PATH="$$HOME/.local/bin:$$PATH"' >> ~/.bashrc
 	@echo "Configuring git..."
 	git config --global user.name "Julius O. Smith III"
 	git config --global user.email "julius.smith@gmail.com"

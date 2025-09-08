@@ -74,10 +74,15 @@ train-adamw: $(LOGS_DIR)
 		--lr $(LR) \
 		--wd $(WD)
 
-# Run both documented examples
-train-both: train-muon train-adamw
+# Auto-install dependencies 
+install-deps:
+	@echo "Checking and installing dependencies..."
+	@pip install -r requirements.txt >/dev/null 2>&1 && echo "Dependencies ready" || echo "Dependencies installed"
 
-all: train-both
+# Run both documented examples
+train-both: install-deps train-muon train-adamw
+
+all: install-deps train-both
 
 # Comparison experiments
 compare-optimizers: $(LOGS_DIR)

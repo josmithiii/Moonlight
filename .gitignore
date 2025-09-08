@@ -1,2 +1,7 @@
 logs
 *.bin
+.venv/
+*.bin
+logs/
+__pycache__/
+*.pyc

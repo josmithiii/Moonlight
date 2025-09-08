@@ -17,7 +17,7 @@ LOGS_DIR := logs
 
 .PHONY: help setup clean train-muon train-adamw train-both compare-optimizers test-sizes all
 
-help:
+h help:
 	@echo "Moonlight Training Makefile"
 	@echo ""
 	@echo "Setup targets:"
@@ -39,6 +39,11 @@ help:
 	@echo "Parameters (can override with make VAR=value):"
 	@echo "  MODEL=$(MODEL), DATASET=$(DATASET), HIDDEN_SIZE=$(HIDDEN_SIZE)"
 	@echo "  LR=$(LR), WD=$(WD)"
+	@echo ""
+	@echo "Other targets:"
+	@grep -E '^[.a-zA-Z0-9_ -]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}' || true
+
+#       @grep -E '^[.a-zA-Z0-9_ -]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' | less -R
 
 setup:
 	@echo "Setting up environment..."
@@ -132,10 +137,12 @@ clean:
 	@echo "Cleaning up..."
 	rm -rf .venv
 	rm -rf $(LOGS_DIR)
-	rm -f *.bin
 	rm -rf __pycache__
 	rm -rf examples/__pycache__
 	@echo "Cleaned virtual environment, logs, cached datasets, and Python cache files"
+
+dclean dist-clean: clean ## make clean plus deleting any downloaded and pre-processed dataset files
+	rm -f *.bin
 
 # Environment check before running training
 .PHONY: check-env list-logs smoke-test train-custom

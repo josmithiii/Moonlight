@@ -1,6 +1,7 @@
 # Makefile for Moonlight project
 # Run 'make help' to see all available targets
 
+SHELL := /bin/bash
 PYTHON := python3
 VENV_ACTIVATE := source .venv/bin/activate &&
 TRAIN_SCRIPT := examples/toy_train.py

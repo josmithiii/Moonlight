@@ -3,5 +3,6 @@ loguru==0.7.3
 numpy==2.2.3
 setuptools>=69.0.0
 torch==2.6.0
+torchvision==0.21.0
 tqdm==4.67.1
 transformers==4.49.0

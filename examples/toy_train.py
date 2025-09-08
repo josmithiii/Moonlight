@@ -13,6 +13,20 @@ from transformers import (
 from tqdm import tqdm
 
 
+def get_device():
+    """Get the best available device for training."""
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+        print(f"Using CUDA GPU: {torch.cuda.get_device_name()}")
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+        print("Using Apple Metal Performance Shaders (MPS)")
+    else:
+        device = torch.device('cpu')
+        print("Using CPU")
+    return device
+
+
 class MoonDataset(Dataset):
     def __init__(self, dataset_name, dataset, tokenizer, max_length=512):
         self.dataset_name = dataset_name
@@ -333,7 +347,7 @@ if __name__ == "__main__":
         args.optimizer, model, lr=args.lr
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     model.to(device)
 
     model.train()

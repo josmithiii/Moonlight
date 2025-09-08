@@ -69,6 +69,8 @@ train-muon: $(LOGS_DIR)
 		--hidden_size $(HIDDEN_SIZE) \
 		--lr $(LR) \
 		--wd $(WD)
+	@echo "Training complete! Saving results..."
+	@git add logs/ && git commit -m "Muon training results - $(MODEL) h$(HIDDEN_SIZE) lr$(LR) - $$(date)" && git push || echo "Failed to save results to git"
 
 train-adamw: $(LOGS_DIR)
 	@echo "Training with AdamW optimizer (documented example)..."
@@ -79,6 +81,8 @@ train-adamw: $(LOGS_DIR)
 		--hidden_size $(HIDDEN_SIZE) \
 		--lr $(LR) \
 		--wd $(WD)
+	@echo "Training complete! Saving results..."
+	@git add logs/ && git commit -m "AdamW training results - $(MODEL) h$(HIDDEN_SIZE) lr$(LR) - $$(date)" && git push || echo "Failed to save results to git"
 
 # Auto-install dependencies 
 install-deps:

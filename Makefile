@@ -3,7 +3,8 @@
 
 SHELL := /bin/bash
 PYTHON := python3
-VENV_ACTIVATE := source .venv/bin/activate &&
+# Use virtual env if it exists, otherwise use system python
+VENV_ACTIVATE := test -f .venv/bin/activate && source .venv/bin/activate ||
 TRAIN_SCRIPT := examples/toy_train.py
 
 # Default parameters

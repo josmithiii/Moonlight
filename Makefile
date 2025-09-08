@@ -16,7 +16,7 @@ WD := 0.1
 # Log directory
 LOGS_DIR := logs
 
-.PHONY: help setup clean train-muon train-adamw train-both compare-optimizers test-sizes all
+.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers test-sizes all
 
 h help:
 	@echo "Moonlight Training Makefile"
@@ -45,6 +45,11 @@ h help:
 	@grep -E '^[.a-zA-Z0-9_ -]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}' || true
 
 #       @grep -E '^[.a-zA-Z0-9_ -]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' | less -R
+
+setup-runpod: ## Add ~/.local/bin to path for RunPod Ubuntu systems:
+	@echo "Setting up for RunPod ..."
+	echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+	@echo Now say "source ~/.bashrc"
 
 setup:
 	@echo "Setting up environment..."

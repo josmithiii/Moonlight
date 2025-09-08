@@ -50,7 +50,11 @@ h help:
 setup-runpod: ## Add ~/.local/bin to path for RunPod Ubuntu systems:
 	@echo "Setting up for RunPod ..."
 	echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-	@echo Now say "source ~/.bashrc"
+	@echo "Configuring git..."
+	git config --global user.name "Julius O. Smith III"
+	git config --global user.email "julius.smith@gmail.com"
+	git config --global credential.helper store
+	@echo "Now say 'source ~/.bashrc' and run 'git push' once to store credentials"
 
 setup:
 	@echo "Setting up environment..."

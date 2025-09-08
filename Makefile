@@ -91,7 +91,12 @@ train-adamw: $(LOGS_DIR)
 # Auto-install dependencies 
 install-deps:
 	@echo "Checking and installing dependencies..."
-	@pip install -r requirements.txt >/dev/null 2>&1 && echo "Dependencies ready" || echo "Dependencies installed"
+	@pip install --index-url https://download.pytorch.org/whl/cu124 -r requirements.txt >/dev/null 2>&1 && echo "Dependencies ready" || echo "Dependencies installed"
+
+fix-rtx5090: ## Fix RTX 5090 compatibility by upgrading PyTorch to CUDA 12.4 version
+	@echo "Fixing RTX 5090 compatibility..."
+	pip uninstall torch torchvision -y
+	pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.6.0+cu124 torchvision==0.21.0+cu124
 
 # Run both documented examples
 train-both: install-deps train-muon train-adamw

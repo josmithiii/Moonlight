@@ -1,0 +1,82 @@
+> What is the shape in this example:
+  # train qwen-like dense model with muon
+  python3 examples/toy_train.py --model qwen --optimizer muon --dataset openwebtext-100k --hidden_size 896 --lr 1e-3
+
+Based on the code, for the example command with --hidden_size 896, the Qwen2 model is configured with:
+- hidden_size=896 (from the command line argument)
+- intermediate_size=4864 (hardcoded in the config)
+- num_attention_heads=16
+- num_hidden_layers=12
+
+The weight matrices that would be optimized by Muon (2D matrices excluding embeddings and lm_head) would include:
+
+1. Attention matrices: Query, Key, Value projection matrices with shapes like [896, 896]
+
+2. Feed-forward network matrices:
+   - Up projection: [896, 4864]
+   - Down projection: [4864, 896]
+3. Output projection matrices in attention layers: [896, 896]
+
+So the main 2D weight matrix shapes in this example would be:
+- [896, 896] for attention projections
+- [896, 4864] and [4864, 896] for the MLP layers
+
+These are the matrices that Muon's Newton-Schulz orthogonalization
+would be applied to, while parameters like
+  embeddings,
+  biases, and
+  layer norms
+would fall back to AdamW optimization.
+
+------------------------------------------------------------------------------------------------------------------------
+9/08/25 CCS
+
+⏺ Based on my analysis of the make train-muon target and the training code, here's an overview of the architectures used:
+
+  Model Architecture (Qwen2-based)
+
+  Core Architecture: Modified Qwen2 transformer with configurable hidden size
+  - Base Model: Qwen2ForCausalLM from HuggingFace transformers
+  - Hidden Size: 896 (default, configurable via HIDDEN_SIZE parameter)
+  - Layers: 12 transformer layers (num_hidden_layers=12)
+  - Attention Heads: 16 heads (num_attention_heads=16)
+  - Intermediate Size: 4864 (feed-forward network width)
+  - Vocabulary Size: 151,936 tokens
+  - Max Sequence Length: 513 tokens
+  - Activation Function: SiLU
+  - Normalization: RMSNorm (ε=1e-6)
+  - Position Encoding: RoPE (Rotary Position Embedding, θ=1,000,000)
+
+  Optimizer Architecture (Muon)
+
+  Hybrid Optimization Strategy:
+  - Muon Parameters: All 2D weight matrices (excluding embeddings/head layers)
+    - Uses Newton-Schulz orthogonalization via zeropower_via_newtonschulz5
+    - Learning rate adjusted by 0.2 * sqrt(max(height, width)) based on matrix dimensions
+    - 5 Newton-Schulz iterations for orthogonalization
+    - Momentum-based updates (default momentum=0.95)
+  - AdamW Fallback: For embeddings, biases, and 1D parameters
+    - Standard AdamW with β₁=0.9, β₂=0.95
+    - Used for embed_tokens and lm_head layers
+
+  Training Pipeline Architecture
+
+  Dataset Processing: MoonDataset class
+  - Tokenizes and caches OpenWebText-100k dataset
+  - Fixed sequence length: 512 tokens
+  - Batch size: 16
+
+  Training Configuration:
+  - Learning rate: 1e-3 (default)
+  - Weight decay: 0.1
+  - Cosine learning rate schedule with 100 warmup steps
+  - Device detection: CUDA → MPS → CPU fallback
+  - Logging via loguru to logs/train_qwen_muon_lr1e-3.log
+
+  The key innovation is the Muon optimizer's orthogonalization of 2D
+  weight updates using Newton-Schulz iteration, designed to achieve
+  ~2x computational efficiency compared to standard AdamW
+  optimization.
+
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------

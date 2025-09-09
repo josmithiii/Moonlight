@@ -4,7 +4,7 @@
 SHELL := /bin/bash
 PYTHON := /usr/bin/python3
 # Use virtual env if it exists, otherwise use system python directly
-VENV_ACTIVATE := test -f .venv/bin/activate && source .venv/bin/activate && echo "Using virtual environment" ||
+VENV_ACTIVATE := test -f .venv/bin/activate && source .venv/bin/activate ||
 TRAIN_SCRIPT := examples/toy_train.py
 
 # Default parameters
@@ -17,7 +17,7 @@ WD := 0.1
 # Log directory
 LOGS_DIR := logs
 
-.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers test-sizes all viz-all viz-simple viz-enhanced viz-vgg viz-list
+.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers test-sizes all viz-muon viz-adamw viz-compare
 
 h help:
 	@echo "Moonlight Training Makefile"
@@ -34,6 +34,11 @@ h help:
 	@echo "Comparison targets:"
 	@echo "  compare-optimizers - Train both optimizers with same config for comparison"
 	@echo "  test-sizes     - Test different model sizes (512, 896, 1024)"
+	@echo ""
+	@echo "Visualization targets:"
+	@echo "  viz-muon       - Show Muon optimizer architecture diagrams"
+	@echo "  viz-adamw      - Show AdamW optimizer architecture diagrams"
+	@echo "  viz-compare    - Show comparison of both optimizers"
 	@echo ""
 	@echo "Convenience targets:"
 	@echo "  all            - Run both documented examples"
@@ -171,37 +176,30 @@ dclean dist-clean: clean ## make clean plus deleting any downloaded and pre-proc
 
 # VISUALIZATION TARGETS "viz*"
 
-viz-all viz-diagrams: ## Generate enhanced diagrams for all model architectures (text + graphical)
-	@echo "Generating enhanced model diagrams..."
-	$(VENV_ACTIVATE) $(PYTHON) viz/enhanced_model_diagrams.py
-
-viz-simple: ## Generate simple text-only diagrams for Qwen2 model
-	@echo "Generating simple model diagram..."
-	$(VENV_ACTIVATE) $(PYTHON) viz/simple_model_diagram.py
-
-viz-enhanced: ## Generate enhanced diagrams with detailed layer information
-	@echo "Generating enhanced model diagrams..."
-	$(VENV_ACTIVATE) $(PYTHON) viz/enhanced_model_diagrams.py
-
-viz-vgg: ## Generate VGG-style architecture diagrams (EPS + PNG)
-	@echo "Generating VGG-style architecture diagrams..."
-	$(VENV_ACTIVATE) $(PYTHON) viz/vgg_style_diagrams.py
-
-viz-list: ## List available model configurations for diagrams
-	@echo "Available model configurations:"
-	$(VENV_ACTIVATE) $(PYTHON) viz/enhanced_model_diagrams.py --list-configs || echo "List configs not supported"
 
 viz-muon: ## Generate diagrams showing Muon optimizer architecture
 	@echo "Generating Muon optimizer diagrams..."
-	$(VENV_ACTIVATE) $(PYTHON) viz/enhanced_model_diagrams.py --optimizer muon
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --optimizer muon; \
+	else \
+		python3 viz/enhanced_model_diagrams.py --optimizer muon; \
+	fi
 
 viz-adamw: ## Generate diagrams showing AdamW optimizer architecture  
 	@echo "Generating AdamW optimizer diagrams..."
-	$(VENV_ACTIVATE) $(PYTHON) viz/enhanced_model_diagrams.py --optimizer adamw
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --optimizer adamw; \
+	else \
+		python3 viz/enhanced_model_diagrams.py --optimizer adamw; \
+	fi
 
 viz-compare: ## Generate comparison diagrams for Muon vs AdamW
 	@echo "Generating optimizer comparison diagrams..."
-	$(VENV_ACTIVATE) $(PYTHON) viz/enhanced_model_diagrams.py --compare-optimizers
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --compare-optimizers; \
+	else \
+		python3 viz/enhanced_model_diagrams.py --compare-optimizers; \
+	fi
 
 # Environment check before running training
-.PHONY: check-env list-logs smoke-test train-custom viz-all viz-simple viz-enhanced viz-vgg viz-list viz-muon viz-adamw viz-compare
+.PHONY: check-env list-logs smoke-test train-custom viz-muon viz-adamw viz-compare

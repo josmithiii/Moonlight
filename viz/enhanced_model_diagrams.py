@@ -1,257 +1,347 @@
 #!/usr/bin/env python3
-"""Enhanced model diagram generation with both text and graphical output."""
+"""Enhanced model diagram generation for Moonlight project."""
 
 import torch
 import torch.nn as nn
-from torchviz import make_dot
 from pathlib import Path
 import sys
 import os
-import hydra
-from hydra import compose, initialize_config_dir
-from hydra.core.global_hydra import GlobalHydra
-from omegaconf import DictConfig
 import argparse
+import math
 
-# Set up project root and imports
-import rootutils
-root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+# Import Moonlight components
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from examples.toy_train import get_model_and_dataloader, Muon, zeropower_via_newtonschulz5
+from transformers import Qwen2Config, Qwen2ForCausalLM
 
-from src.models.components.simple_cnn import SimpleCNN
-
-def create_text_summary(model, input_shape=(1, 1, 28, 28), model_name="Model"):
+def create_text_summary(model, optimizer=None, model_name="Qwen2"):
     """Create a text summary of the model architecture."""
     print("=" * 80)
-    print(f"{model_name} Architecture Summary")
+    print(f"Moonlight Project - {model_name} Architecture Summary")
     print("=" * 80)
-
-    # Print model structure
-    print("\nModel Structure:")
-    print(model)
 
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+    print(f"\nModel Configuration:")
+    if hasattr(model, 'config'):
+        config = model.config
+        print(f"Hidden size: {config.hidden_size}")
+        print(f"Number of layers: {config.num_hidden_layers}")
+        print(f"Number of attention heads: {config.num_attention_heads}")
+        print(f"Intermediate size: {config.intermediate_size}")
+        print(f"Vocabulary size: {config.vocab_size}")
+        print(f"Max position embeddings: {config.max_position_embeddings}")
+
     print(f"\nParameter Count:")
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
 
-    # Test forward pass and show shapes
-    print(f"\nForward Pass Shape Analysis:")
-    print(f"Input shape: {input_shape}")
+    # Show parameter breakdown by type
+    print(f"\nParameter Breakdown:")
+    param_groups = {}
+    for name, param in model.named_parameters():
+        param_type = "other"
+        if "embed" in name:
+            param_type = "embeddings"
+        elif "attention" in name:
+            param_type = "attention"
+        elif "mlp" in name or "feed_forward" in name:
+            param_type = "mlp"
+        elif "norm" in name:
+            param_type = "normalization"
+        elif "lm_head" in name:
+            param_type = "output_head"
+        
+        if param_type not in param_groups:
+            param_groups[param_type] = 0
+        param_groups[param_type] += param.numel()
 
-    with torch.no_grad():
-        x = torch.randn(*input_shape)
+    for param_type, count in param_groups.items():
+        print(f"  {param_type}: {count:,} ({count/total_params*100:.1f}%)")
 
-        # Track intermediate shapes
-        print(f"Input: {x.shape}")
-
-        # Conv layers
-        if hasattr(model, 'conv_layers'):
-            conv_out = model.conv_layers(x)
-            print(f"After conv layers: {conv_out.shape}")
-
-        # Shared features
-        if hasattr(model, 'shared_features'):
-            shared_out = model.shared_features(conv_out)
-            print(f"After shared features: {shared_out.shape}")
-
-        # Final output
-        final_out = model(x)
-        if isinstance(final_out, dict):
-            print(f"Final output (multihead):")
-            for head_name, logits in final_out.items():
-                print(f"  {head_name}: {logits.shape}")
+    # Show optimizer information if provided
+    if optimizer:
+        print(f"\nOptimizer Configuration:")
+        if isinstance(optimizer, Muon):
+            muon_params = [p for p in optimizer.param_groups[0]['params'] if optimizer.state[p]["use_muon"]]
+            adamw_params = [p for p in optimizer.param_groups[0]['params'] if not optimizer.state[p]["use_muon"]]
+            
+            muon_param_count = sum(p.numel() for p in muon_params)
+            adamw_param_count = sum(p.numel() for p in adamw_params)
+            
+            print(f"  Optimizer: Muon (hybrid)")
+            print(f"  Muon parameters: {muon_param_count:,} ({muon_param_count/total_params*100:.1f}%)")
+            print(f"  AdamW parameters: {adamw_param_count:,} ({adamw_param_count/total_params*100:.1f}%)")
+            print(f"  Newton-Schulz steps: {optimizer.param_groups[0]['ns_steps']}")
+            print(f"  Momentum: {optimizer.param_groups[0]['momentum']}")
         else:
-            print(f"Final output: {final_out.shape}")
+            print(f"  Optimizer: {type(optimizer).__name__}")
 
-def create_graphical_diagram(model, input_shape=(1, 1, 28, 28), model_name="model", output_dir="diagrams"):
-    """Create a graphical diagram using torchviz."""
-    print(f"\nGenerating graphical diagram for {model_name}...")
-
-    # Create output directory
-    output_path = Path(output_dir)
-    output_path.mkdir(exist_ok=True)
-
-    # Create sample input
-    x = torch.randn(*input_shape, requires_grad=True)
-
-    # Forward pass
-    y = model(x)
-
-    # Handle multihead output
-    if isinstance(y, dict):
-        # For multihead, visualize the first head
-        first_head = next(iter(y.values()))
-        dot = make_dot(first_head, params=dict(model.named_parameters()), show_attrs=True, show_saved=True)
-        dot.graph_attr['label'] = f'{model_name} (Multihead - First Head)'
-    else:
-        dot = make_dot(y, params=dict(model.named_parameters()), show_attrs=True, show_saved=True)
-        dot.graph_attr['label'] = f'{model_name} Architecture'
-
-    # Customize appearance
-    dot.graph_attr['rankdir'] = 'TB'  # Top to bottom
-    dot.graph_attr['size'] = '12,16'
-    dot.graph_attr['dpi'] = '300'
-
-    # Save the diagram
-    filename = f"{model_name.lower().replace(' ', '_')}_graph"
-    dot.render(output_path / filename, format='png', cleanup=True)
-    dot.render(output_path / filename, format='pdf', cleanup=True)
-
-    print(f"Saved graphical diagrams:")
-    print(f"  PNG: {output_path / filename}.png")
-    print(f"  PDF: {output_path / filename}.pdf")
-
-    return dot
-
-def create_ascii_diagram_cnn():
-    """Create an ASCII diagram for CNN architecture."""
+def create_muon_optimizer_diagram():
+    """Create ASCII diagram showing Muon optimizer architecture."""
     print("\n" + "="*80)
-    print("CNN Architecture Flow Diagram")
+    print("MUON OPTIMIZER ARCHITECTURE")
     print("="*80)
 
     print("""
-    Input (1×28×28) MNIST Image
-           │
-           ▼
-    ┌─────────────────────────────┐
-    │     CONV BLOCK 1            │
-    │  Conv2d(1→3, 3×3, pad=1)    │  ← 3×3 convolution
-    │  BatchNorm2d(3)             │  ← normalize activations
-    │  ReLU()                     │  ← activation function
-    │  MaxPool2d(2×2, stride=2)   │  ← downsample by 2
-    └─────────────────────────────┘
-           │ (3×14×14)
-           ▼
-    ┌─────────────────────────────┐
-    │     CONV BLOCK 2            │
-    │  Conv2d(3→6, 3×3, pad=1)    │  ← double channels
-    │  BatchNorm2d(6)             │  ← normalize activations
-    │  ReLU()                     │  ← activation function
-    │  MaxPool2d(2×2, stride=2)   │  ← downsample by 2
-    └─────────────────────────────┘
-           │ (6×7×7)
-           ▼
-    ┌─────────────────────────────┐
-    │   FEATURE EXTRACTION        │
-    │  AdaptiveAvgPool2d(7×7)     │  ← ensure 7×7 output
-    │  Flatten()                  │  ← reshape to 1D
-    └─────────────────────────────┘
-           │ (294,) = 6×7×7
-           ▼
-    ┌─────────────────────────────┐
-    │    CLASSIFIER HEAD          │
-    │  Linear(294→25)             │  ← hidden layer
-    │  ReLU()                     │  ← activation
-    │  Dropout(0.25)              │  ← regularization
-    │  Linear(25→10)              │  ← output layer
-    └─────────────────────────────┘
-           │
-           ▼
-        Output (10,) Class Logits
+    Parameter Classification:
+    ┌─────────────────────┐    ┌─────────────────────┐
+    │   Model Parameters  │    │   Model Parameters  │
+    │                     │    │                     │
+    │  • Weight Matrices  │    │  • Embeddings       │
+    │    (2D, ≥2D)        │    │  • Biases           │
+    │  • Exclude embed_   │    │  • Layer norms      │
+    │    tokens, lm_head  │    │  • 1D parameters    │
+    └─────────────────────┘    └─────────────────────┘
+              │                           │
+              ▼                           ▼
+    ┌─────────────────────┐    ┌─────────────────────┐
+    │   MUON Optimizer    │    │   AdamW Optimizer   │
+    │                     │    │                     │
+    │ 1. SGD + Momentum   │    │ 1. Gradient moments │
+    │    • buf ← βbuf+g   │    │    • m₁ ← β₁m₁+(1-β₁)g │
+    │    • g ← g + βbuf   │    │    • m₂ ← β₂m₂+(1-β₂)g² │
+    │                     │    │                     │
+    │ 2. Newton-Schulz    │    │ 2. Bias correction  │
+    │    Orthogonalization│    │    • m̂₁ ← m₁/(1-β₁ᵗ) │
+    │    • u ← NS₅(g)     │    │    • m̂₂ ← m₂/(1-β₂ᵗ) │
+    │                     │    │                     │
+    │ 3. Adaptive LR      │    │ 3. Update rule      │
+    │    • lr′← lr×0.2×   │    │    • θ ← θ - lr×m̂₁   │
+    │      √max(h,w)      │    │           ────────   │
+    │                     │    │           √m̂₂ + ε    │
+    │ 4. Update           │    │                     │
+    │    • θ ← θ - lr′×u  │    │                     │
+    └─────────────────────┘    └─────────────────────┘
+
+    Newton-Schulz Orthogonalization (NS₅):
+    ┌──────────────────────────────────────────────────────┐
+    │  G ← Gradient matrix                                 │
+    │  X ← G / (||G|| + ε)     # Normalize spectral norm   │
+    │  for i = 1 to 5:         # 5 NS iterations          │
+    │    A ← X @ Xᵀ                                        │
+    │    B ← b×A + c×A@A       # Quintic coefficients     │
+    │    X ← a×X + B@X         # a=3.4445, b=-4.7750,     │
+    │  return X                #          c=2.0315        │
+    └──────────────────────────────────────────────────────┘
+
+    Key Benefits:
+    • ~2x computational efficiency vs AdamW
+    • Orthogonal updates preserve gradient directions
+    • Automatic learning rate scaling for matrix dimensions
+    • Stable bfloat16 computation on GPU
     """)
 
-def generate_from_config(config_name: str, output_dir: str = "diagrams"):
-    """Generate diagrams from a Hydra config file."""
-    print(f"\nGenerating diagrams from config: {config_name}")
+def create_qwen2_architecture_diagram():
+    """Create ASCII diagram showing Qwen2 model architecture."""
+    print("\n" + "="*80)
+    print("QWEN2 MODEL ARCHITECTURE")
+    print("="*80)
 
-    # Clear any existing Hydra instance
-    GlobalHydra.instance().clear()
+    print("""
+    Input Tokens [batch_size, seq_len]
+                    │
+                    ▼
+    ┌──────────────────────────────────────────┐
+    │          Token Embedding                 │
+    │     embed_tokens: vocab_size → hidden    │
+    └──────────────────────────────────────────┘
+                    │
+                    ▼
+    ┌──────────────────────────────────────────┐  ← 12 layers
+    │          Qwen2 Decoder Layer            │  │
+    │                                          │  │
+    │  ┌────────────────────────────────────┐  │  │
+    │  │     RMSNorm (input_layernorm)      │  │  │
+    │  └────────────────────────────────────┘  │  │
+    │                    │                     │  │
+    │                    ▼                     │  │
+    │  ┌────────────────────────────────────┐  │  │
+    │  │    Multi-Head Self Attention       │  │  │
+    │  │  • 16 heads, head_dim = hidden/16  │  │  │
+    │  │  • RoPE positional encoding       │  │  │
+    │  │  • Q,K,V projections + output      │  │  ├─┐
+    │  └────────────────────────────────────┘  │  │ │
+    │                    │                     │  │ │
+    │                    ▼                     │  │ │
+    │  ┌────────────────────────────────────┐  │  │ │
+    │  │     RMSNorm (post_attention)       │  │  │ │
+    │  └────────────────────────────────────┘  │  │ │
+    │                    │                     │  │ │
+    │                    ▼                     │  │ │
+    │  ┌────────────────────────────────────┐  │  │ │
+    │  │         MLP (Feed Forward)         │  │  │ │
+    │  │  • gate_proj: hidden → 4864       │  │  │ │
+    │  │  • up_proj: hidden → 4864         │  │  │ │
+    │  │  • SiLU activation                 │  │  │ │
+    │  │  • down_proj: 4864 → hidden       │  │  │ │
+    │  └────────────────────────────────────┘  │  │ │
+    │                                          │ ◄┘ │
+    └──────────────────────────────────────────┘    │
+                    │                              │
+                    ▼                              │
+                 Residual ←────────────────────────┘
+                    │
+                    ▼
+    ┌──────────────────────────────────────────┐
+    │              RMSNorm                     │
+    │            (final norm)                  │
+    └──────────────────────────────────────────┘
+                    │
+                    ▼
+    ┌──────────────────────────────────────────┐
+    │            LM Head                       │
+    │      hidden → vocab_size (151,936)      │
+    └──────────────────────────────────────────┘
+                    │
+                    ▼
+             Output Logits [batch_size, seq_len, vocab_size]
+    """)
 
-    # Get absolute path to configs directory
-    config_dir = str(Path(__file__).parent.parent / "configs")
+def create_qwen2_model(hidden_size=896):
+    """Create just the Qwen2 model without dataset loading."""
+    config = Qwen2Config(
+        attention_dropout=0.0,
+        bos_token_id=151643,
+        eos_token_id=151643,
+        hidden_act="silu",
+        hidden_size=hidden_size,
+        initializer_range=0.02,
+        intermediate_size=4864,
+        max_position_embeddings=513,
+        max_window_layers=12,
+        model_type="qwen2",
+        num_attention_heads=16,
+        num_hidden_layers=12,
+        num_key_value_heads=16,
+        rms_norm_eps=1e-06,
+        rope_theta=1000000.0,
+        sliding_window=1024,
+        tie_word_embeddings=True,
+        torch_dtype="bfloat16",
+        use_cache=True,
+        use_mrope=False,
+        use_sliding_window=False,
+        vocab_size=151936,
+    )
+    return Qwen2ForCausalLM(config)
 
-    try:
-        # Initialize Hydra with the configs directory
-        with initialize_config_dir(config_dir=config_dir, version_base=None):
-            # Load the specific model config
-            cfg = compose(config_name="train.yaml", overrides=[f"model={config_name}"])
+def create_lightweight_optimizer(optimizer_name, model, lr=1e-3, wd=0.1):
+    """Create optimizer without full dataset dependencies."""
+    if optimizer_name == "adamw":
+        return torch.optim.AdamW(
+            model.parameters(), lr=lr, weight_decay=wd, betas=(0.9, 0.95)
+        )
+    elif optimizer_name == "muon":
+        muon_params = [
+            p
+            for name, p in model.named_parameters()
+            if p.ndim >= 2 and "embed_tokens" not in name and "lm_head" not in name
+        ]
+        adamw_params = [
+            p
+            for name, p in model.named_parameters()
+            if not (
+                p.ndim >= 2 and "embed_tokens" not in name and "lm_head" not in name
+            )
+        ]
+        return Muon(
+            lr=lr,
+            wd=wd,
+            muon_params=muon_params,
+            adamw_params=adamw_params,
+        )
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
-            # Extract dynamic input parameters from model config
-            net_config = cfg.model.net
-            
-            # Determine input channels (CNN uses input_channels, ViT uses n_channels)
-            if hasattr(net_config, 'input_channels'):
-                input_channels = net_config.input_channels
-            elif hasattr(net_config, 'n_channels'):
-                input_channels = net_config.n_channels
-            else:
-                input_channels = 1  # fallback
-            
-            # Determine input size (CNN uses input_size, ViT uses image_size)
-            if hasattr(net_config, 'input_size'):
-                input_size = net_config.input_size
-            elif hasattr(net_config, 'image_size'):
-                input_size = net_config.image_size
-            else:
-                input_size = 32  # fallback to VIMH default
-            
-            # Create dynamic input shape (batch_size=1, channels, height, width)
-            input_shape = (1, input_channels, input_size, input_size)
-            print(f"Using input shape: {input_shape}")
+def generate_model_diagrams(optimizer_name=None, hidden_size=896):
+    """Generate diagrams for Moonlight models and optimizers."""
+    print("Generating Moonlight model architecture diagrams...")
+    
+    # Create model without dataset loading
+    model = create_qwen2_model(hidden_size)
+    
+    optimizer = None
+    if optimizer_name == "muon":
+        optimizer = create_lightweight_optimizer("muon", model, lr=1e-3, wd=0.1)
+    elif optimizer_name == "adamw":
+        optimizer = create_lightweight_optimizer("adamw", model, lr=1e-3, wd=0.1)
+    
+    # Show model summary
+    create_text_summary(model, optimizer, model_name=f"Qwen2 (h={hidden_size})")
+    
+    # Show architecture diagrams
+    create_qwen2_architecture_diagram()
+    
+    # Show optimizer-specific diagrams
+    if optimizer_name == "muon":
+        create_muon_optimizer_diagram()
+    elif optimizer_name == "adamw":
+        create_adamw_optimizer_diagram()
+    elif optimizer_name is None:
+        # Show both
+        create_muon_optimizer_diagram()
+        create_adamw_optimizer_diagram()
 
-            # Instantiate the model
-            model = hydra.utils.instantiate(cfg.model)
+def create_adamw_optimizer_diagram():
+    """Create ASCII diagram showing AdamW optimizer architecture."""
+    print("\n" + "="*80)
+    print("ADAMW OPTIMIZER ARCHITECTURE")
+    print("="*80)
 
-            # Generate both text and graphical diagrams
-            create_text_summary(model, input_shape=input_shape, model_name=f"Model: {config_name}")
-            create_ascii_diagram_cnn()
-            create_graphical_diagram(model, input_shape=input_shape, model_name=config_name, output_dir=output_dir)
+    print("""
+    AdamW Update Rule:
+    ┌──────────────────────────────────────────────────────┐
+    │  Input: parameters θ, gradients g, learning rate lr │
+    │                                                      │
+    │  State variables:                                    │
+    │  • m₁ ← first moment (momentum)                      │
+    │  • m₂ ← second moment (variance)                     │
+    │  • t  ← time step                                    │
+    │                                                      │
+    │  Update rule:                                        │
+    │  1. t ← t + 1                                        │
+    │  2. m₁ ← β₁ × m₁ + (1 - β₁) × g                      │
+    │  3. m₂ ← β₂ × m₂ + (1 - β₂) × g²                     │
+    │  4. m̂₁ ← m₁ / (1 - β₁ᵗ)    # Bias correction        │
+    │  5. m̂₂ ← m₂ / (1 - β₂ᵗ)    # Bias correction        │
+    │  6. θ ← θ - lr × (m̂₁ / (√m̂₂ + ε) + λ × θ)           │
+    │                                                      │
+    │  Hyperparameters:                                    │
+    │  • β₁ = 0.9     (momentum decay)                     │
+    │  • β₂ = 0.95    (variance decay)                     │
+    │  • ε = 1e-8     (numerical stability)               │
+    │  • λ = 0.1      (weight decay)                       │
+    └──────────────────────────────────────────────────────┘
 
-    except Exception as e:
-        print(f"Error loading config {config_name}: {e}")
-        sys.exit(1)
+    Key Features:
+    • Adaptive learning rates per parameter
+    • Momentum for smooth convergence
+    • Bias correction for early training steps
+    • Weight decay for regularization
+    """)
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate model architecture diagrams")
-    parser.add_argument("--config", "-c", default=None,
-                       help="Model config name (default: generate for all configs)")
-    parser.add_argument("--output", "-o", default="diagrams",
-                       help="Output directory for diagrams (default: diagrams)")
-    parser.add_argument("--list-configs", action="store_true",
-                       help="List available model configs")
+    parser = argparse.ArgumentParser(description="Generate Moonlight architecture diagrams")
+    parser.add_argument("--optimizer", choices=["muon", "adamw"], default=None,
+                       help="Optimizer to generate diagrams for (default: both)")
+    parser.add_argument("--hidden-size", type=int, default=896,
+                       help="Hidden size for model (default: 896)")
+    parser.add_argument("--compare-optimizers", action="store_true",
+                       help="Generate comparison diagrams for both optimizers")
 
     args = parser.parse_args()
 
-    if args.list_configs:
-        config_path = Path("configs/model")
-        if config_path.exists():
-            print("Available model configs:")
-            for config_file in config_path.glob("*.yaml"):
-                print(f"  {config_file.stem}")
-        else:
-            print("No configs/model directory found")
-        return
-
-    # If no config specified, generate for all configs
-    if args.config is None:
-        config_path = Path("configs/model")
-        if not config_path.exists():
-            print("No configs/model directory found")
-            sys.exit(1)
-        
-        config_files = list(config_path.glob("*.yaml"))
-        if not config_files:
-            print("No model config files found in configs/model/")
-            sys.exit(1)
-        
-        print(f"Generating diagrams for all {len(config_files)} model configs...")
-        for i, config_file in enumerate(config_files, 1):
-            config_name = config_file.stem
-            print(f"\n[{i}/{len(config_files)}] Processing {config_name}...")
-            try:
-                generate_from_config(config_name, args.output)
-            except Exception as e:
-                print(f"Failed to generate diagram for {config_name}: {e}")
-                continue
+    if args.compare_optimizers:
+        print("Generating comparison diagrams for Muon vs AdamW optimizers...")
+        generate_model_diagrams(optimizer_name=None, hidden_size=args.hidden_size)
     else:
-        generate_from_config(args.config, args.output)
+        generate_model_diagrams(optimizer_name=args.optimizer, hidden_size=args.hidden_size)
 
     print(f"\n{'='*80}")
-    print("Model diagram generation complete!")
-    print(f"Check the '{args.output}' directory for graphical outputs")
+    print("Moonlight architecture diagram generation complete!")
     print("="*80)
 
 if __name__ == "__main__":

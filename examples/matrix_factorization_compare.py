@@ -31,7 +31,7 @@ def set_seed(seed: int = 42) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def create_positive_definite_matrix(size: int, condition_number: float = 100.0, device: torch.device = torch.device('cpu')) -> torch.Tensor:
+def create_positive_definite_matrix(size: int, condition_number: float = 100.0, device: torch.device = torch.device('cpu')) -> tuple[torch.Tensor, torch.Tensor]:
     """Create a random positive definite matrix with specified condition number."""
     # For MPS compatibility, generate matrix on CPU first if QR not available
     if device.type == 'mps':
@@ -46,7 +46,7 @@ def create_positive_definite_matrix(size: int, condition_number: float = 100.0, 
         
         # Construct positive definite matrix: Q @ D @ Q.T
         target_matrix = Q @ D @ Q.T
-        return target_matrix.to(device)
+        return target_matrix.to(device), eigenvals.to(device)
     else:
         # Generate directly on target device
         A = torch.randn(size, size, device=device)
@@ -59,7 +59,7 @@ def create_positive_definite_matrix(size: int, condition_number: float = 100.0, 
         
         # Construct positive definite matrix: Q @ D @ Q.T
         target_matrix = Q @ D @ Q.T
-        return target_matrix
+        return target_matrix, eigenvals
 
 class MatrixFactorizationModel(nn.Module):
     """Simple model that learns to factorize a positive definite matrix."""
@@ -204,14 +204,9 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
     
     # Create target positive definite matrix
     set_seed(seed)
-    target_matrix = create_positive_definite_matrix(matrix_size, condition_number, device)
+    target_matrix, eigenvals = create_positive_definite_matrix(matrix_size, condition_number, device)
     
     print(f"Target matrix properties:")
-    # Compute eigenvalues on CPU for compatibility
-    if device.type == 'mps':
-        eigenvals = torch.linalg.eigvals(target_matrix.cpu()).real
-    else:
-        eigenvals = torch.linalg.eigvals(target_matrix).real
     print(f"  Eigenvalue range: [{eigenvals.min().item():.4f}, {eigenvals.max().item():.4f}]")
     print(f"  Condition number: {(eigenvals.max() / eigenvals.min()).item():.2f}")
     print(f"  Frobenius norm: {torch.norm(target_matrix, 'fro').item():.4f}")

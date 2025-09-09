@@ -147,7 +147,7 @@ qcp quick-compare-plot: ## Run quick comparison with convergence plot
 # Even smaller: python3 examples/quick_compare.py --steps 50 --hidden-size 128 --device mps --plot
 # Force CPU: CUDA_VISIBLE_DEVICES="" python3 examples/quick_compare.py --steps 10 --hidden-size 64 --device cpu
 
-qcfp quick-compare-factorization: ## Run quick comparison on matrix factorization problem, default condition number 100
+qcfp quick-compare-factorization: ## Run quick comparison on matrix factorization problem, default condition number 100
 	@echo "Running Muon vs AdamW on matrix factorization..."
 	@if [ -f .venv/bin/activate ]; then \
 		source .venv/bin/activate && python3 examples/matrix_factorization_compare.py --matrix-size 64 --steps 200 --plot; \

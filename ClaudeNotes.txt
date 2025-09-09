@@ -162,5 +162,67 @@ would fall back to AdamW optimization.
   make qcp        # 2min comparison with convergence plot
   make vm         # Visualize Muon optimizer architecture
 
+---
+
+> How does the neural network architecture differ in @examples/toy_train.py and @examples/matrix_factorization_compare.py ?
+
+⏺ Looking at both files, there are significant differences in the neural network architectures:
+
+  examples/toy_train.py - Language Model Architecture
+
+  Model: Qwen2ForCausalLM (transformer-based language model)
+  - Type: Full transformer with attention, feed-forward layers, embeddings
+  - Complexity: ~12 layers, multi-head attention, intermediate size 4864
+  - Parameters: Millions of parameters across:
+    - Embedding layers (embed_tokens)
+    - Transformer blocks (attention + MLP)
+    - Output head (lm_head)
+  - Task: Next-token prediction on text sequences
+  - Parameter separation:
+    - Muon/MORGN: 2D weight matrices (excluding embeddings/head)
+    - AdamW: Embeddings, biases, layer norms (1D parameters)
+
+  # Complex transformer config
+  config = Qwen2Config(
+      hidden_size=hidden_size,
+      num_hidden_layers=12,
+      num_attention_heads=16,
+      intermediate_size=4864,
+      vocab_size=151936,
+      # ... many more parameters
+  )
+
+  examples/matrix_factorization_compare.py - Simple Factorization Model
+
+  Model: Custom MatrixFactorizationModel
+  - Type: Just two parameter matrices, no layers
+  - Complexity: Minimal - only 2 matrices
+  - Parameters: Just thousands of parameters:
+    - factor_A: (matrix_size × rank)
+    - factor_B: (matrix_size × rank)
+  - Task: Matrix factorization A @ B.T ≈ target_matrix
+  - Parameter separation:
+    - Muon/MORGN: Both factor matrices (all 2D)
+    - AdamW: None (no 1D parameters exist)
+
+  class MatrixFactorizationModel(nn.Module):
+      def __init__(self, matrix_size: int, rank: int = None):
+          # Only two learnable matrices
+          self.factor_A = nn.Parameter(torch.randn(matrix_size, rank) * 0.1)
+          self.factor_B = nn.Parameter(torch.randn(matrix_size, rank) * 0.1)
+
+      def forward(self) -> torch.Tensor:
+          return self.factor_A @ self.factor_B.T  # Simple matrix multiplication
+
+  Key Differences
+
+  1. Complexity: Language model has ~millions of parameters vs factorization model has ~thousands
+  2. Architecture: Transformer vs simple matrix multiplication
+  3. Optimization target: All parameters vs only matrix factors benefit from Muon/MORGN
+  4. Problem type: Discrete sequence modeling vs continuous matrix approximation
+
+  This explains why the optimizers perform differently on each task - the matrix factorization problem is much more focused on the specific matrix operations that Muon's
+  orthogonalization targets, while the language model has many diverse parameter types where only some benefit from orthogonal updates.
+  
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------

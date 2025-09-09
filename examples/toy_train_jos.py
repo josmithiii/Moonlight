@@ -277,45 +277,36 @@ class Muon(torch.optim.Optimizer):
 
 class MORGN(torch.optim.Optimizer):
     """
-    MORGN - Momentum Orthogonalization via Recursive Gauss-Newton.
-
-    Implements a left preconditioned update for 2D parameters using a
-    Recursive Gauss-Newton (RLS-style) inverse Hessian approximation P.
-
-    For each matrix parameter W (m x n), we maintain P (m x m) on the
-    smaller/left dimension (transposing if m > n). The update is
-
-        U = P @ G   (left Newton step on gradient G = dL/dW)
-        W <- W - lr * U
-
-    P is updated by a rank-1 RLS/Sherman-Morrison formula using a small
-    set of gradient directions (columns of G) per step. This captures up
-    to K directions per iteration at O(m^2 K) cost.
-
+    MORGN - MORe Generic Newton (placeholder implementation)
+    
+    This is a stub implementation that will be expanded later.
+    For now, it mimics Muon's interface but uses simple SGD internally.
+    
     Arguments:
-        morgn_params: iterable of 2D parameters updated by MORGN
-        lr: base learning rate
-        wd: weight decay (L2) applied like AdamW on W
-        lambda_: forgetting factor in (0,1], closer to 1 retains history
-        eps: initial diagonal of P0 = (1/eps) * I to start well-conditioned
-        directions: number of gradient columns to assimilate per step
-        adamw_params: parameters optimized by AdamW fallback
-        adamw_betas, adamw_eps: AdamW settings for fallback
+        morgn_params: The parameters to be optimized by MORGN (same as muon_params)
+        lr: The learning rate
+        momentum: The momentum used by the internal SGD (0.95 is a good default)
+        nesterov: Whether to use Nesterov-style momentum (recommended)
+        ns_steps: Number of Newton-Schulz iterations (placeholder, not used yet)
+        adamw_params: Parameters to be optimized by AdamW fallback
+        adamw_betas: The betas for the internal AdamW
+        adamw_eps: The epsilon for the internal AdamW
+        wd: Weight decay
     """
 
     def __init__(
         self,
         lr: float = 1e-3,
-        wd: float = 0.0,
+        wd: float = 0.1,
         morgn_params=None,
-        lambda_: float = 0.99,
-        eps: float = 1e-3,
-        directions: int = 8,
-        step_clamp: float = 0.0,
+        momentum: float = 0.95,
+        nesterov: bool = True,
+        ns_steps: int = 5,
         adamw_params=None,
         adamw_betas: tuple[float, float] = (0.9, 0.95),
         adamw_eps: float = 1e-8,
     ):
+        # Use same parameter names as Muon for compatibility
         if morgn_params is None:
             morgn_params = []
         if adamw_params is None:
@@ -324,130 +315,108 @@ class MORGN(torch.optim.Optimizer):
         defaults = dict(
             lr=lr,
             wd=wd,
-            lambda_=lambda_,
-            eps=eps,
-            directions=directions,
-            step_clamp=step_clamp,
+            momentum=momentum,
+            nesterov=nesterov,
+            ns_steps=ns_steps,
             adamw_betas=adamw_betas,
             adamw_eps=adamw_eps,
         )
 
-        params = list(morgn_params) + list(adamw_params)
+        params = list(morgn_params)
+        params.extend(list(adamw_params))
         super().__init__(params, defaults)
-
-        # Tag parameters and initialize state
+        
+        # Sort parameters into those for which we will use MORGN, and those for which we will not
         for p in morgn_params:
             assert p.ndim == 2, p.ndim
-            self.state[p]["use_morgn"] = True
-            m, n = p.shape
-            if m <= n:
-                left_dim = m
-                self.state[p]["transposed"] = False
-            else:
-                left_dim = n
-                self.state[p]["transposed"] = True  # operate on p.T
-            device = p.device
-            dtype = torch.float32 if p.dtype == torch.float32 else torch.float32
-            # P0 = (1/eps) * I (large to allow quick adaptation)
-            eps_init = self.defaults["eps"]
-            P0 = torch.eye(left_dim, device=device, dtype=dtype) / eps_init
-            self.state[p]["P"] = P0
-
+            self.state[p] = {"use_morgn": True}
         for p in adamw_params:
-            self.state[p]["use_morgn"] = False
+            self.state[p] = {"use_morgn": False}
 
-    @torch.no_grad()
+    def adjust_lr_for_morgn(self, lr: float, param_shape: tuple[int, ...]) -> float:
+        """Adjust learning rate for MORGN (placeholder - same as Muon for now)."""
+        A, B = param_shape[:2]
+        adjusted_ratio = 0.2 * math.sqrt(max(A, B))
+        adjusted_lr = lr * adjusted_ratio
+        return adjusted_lr
+
     def step(self, closure=None):
+        """Perform a single optimization step."""
         loss = None
         if closure is not None:
             with torch.enable_grad():
                 loss = closure()
 
         for group in self.param_groups:
+
+            ############################
+            #          MORGN           #
+            ############################
+
+            params = [p for p in group["params"] if self.state[p]["use_morgn"]]
             lr = group["lr"]
             wd = group["wd"]
-            lambda_ = group["lambda_"]
-            directions = int(group["directions"])
-            step_clamp = float(group.get("step_clamp", 0.0))
-            beta1, beta2 = group.get("adamw_betas", (0.9, 0.95))
-            eps = group.get("adamw_eps", 1e-8)
+            momentum = group["momentum"]
 
-            # MORGN updates
-            for p in [pp for pp in group["params"] if self.state[pp].get("use_morgn", False)]:
+            # MORGN implementation (stub - currently just SGD with momentum)
+            for p in params:
                 g = p.grad
                 if g is None:
                     continue
 
-                st = self.state[p]
-                P = st["P"]
-                transposed = st["transposed"]
+                state = self.state[p]
+                
+                # Initialize momentum buffer
+                if "momentum_buffer" not in state:
+                    state["momentum_buffer"] = torch.zeros_like(g)
+                
+                buf = state["momentum_buffer"]
+                buf.mul_(momentum).add_(g)
+                
+                # For now, disable Nesterov to debug the basic momentum issue
+                update = buf
 
-                # Shape to left form (m x k)
-                G = g.T if transposed else g
-                m, k = G.shape
+                # MORGN stub is unstable - use much smaller learning rate for debugging
+                adjusted_lr = lr * 0.01
 
-                # Preconditioned left Newton step
-                # U_left = P @ G, then map back
-                U_left = P @ G
-                update = U_left.T if transposed else U_left
+                # Apply weight decay
+                p.data.mul_(1 - lr * wd)
 
-                # Weight decay like AdamW
-                if wd != 0.0:
-                    p.data.mul_(1 - lr * wd)
+                # Apply update
+                p.data.add_(update, alpha=-adjusted_lr)
 
-                # Step clamp by Frobenius norm, relative to parameter norm
-                if step_clamp > 0.0:
-                    upd_norm = torch.norm(update, p='fro')
-                    ref = torch.norm(p.data, p='fro') + 1e-12
-                    max_upd = step_clamp * ref
-                    if torch.isfinite(upd_norm) and upd_norm > max_upd:
-                        scale = (max_upd / (upd_norm + 1e-12))
-                        update = update * scale
+            ############################
+            #       AdamW backup       #
+            ############################
 
-                p.data.add_(update, alpha=-lr)
+            params = [p for p in group["params"] if not self.state[p]["use_morgn"]]
+            lr = group['lr']
+            beta1, beta2 = group['adamw_betas']
+            eps = group['adamw_eps']
 
-                # Update P using sequential rank-1 RLS with selected columns
-                # Pick `directions` columns with largest norms
-                with torch.no_grad():
-                    if k <= directions:
-                        idx = range(k)
-                    else:
-                        norms = torch.norm(G, dim=0)
-                        _, topk = torch.topk(norms, directions, largest=True)
-                        idx = topk.tolist()
-                    for j in idx:
-                        v = G[:, j]
-                        Pv = P @ v
-                        denom = lambda_ + torch.dot(v, Pv) + 1e-12
-                        # P = (1/lambda_) * (P - (Pv Pv^T) / denom)
-                        P.sub_(torch.outer(Pv, Pv) / denom)
-                        P.mul_(1.0 / max(lambda_, 1e-6))
-                    # Keep symmetry
-                    P.copy_(0.5 * (P + P.T))
-                    st["P"] = P
-
-            # AdamW fallback for non-2D or excluded params
-            for p in [pp for pp in group["params"] if not self.state[pp].get("use_morgn", False)]:
+            for p in params:
                 g = p.grad
                 if g is None:
                     continue
                 state = self.state[p]
-                if "step" not in state:
-                    state["step"] = 0
-                    state["moment1"] = torch.zeros_like(p)
-                    state["moment2"] = torch.zeros_like(p)
-                state["step"] += 1
-                step = state["step"]
-                m1 = state["moment1"]
-                m2 = state["moment2"]
-                m1.lerp_(g, 1 - beta1)
-                m2.lerp_(g.square(), 1 - beta2)
-                g_hat = m1 / (eps + m2.sqrt())
-                bias_correction1 = 1 - beta1 ** step
-                bias_correction2 = 1 - beta2 ** step
-                if wd != 0.0:
-                    p.data.mul_(1 - lr * wd)
-                p.data.add_(g_hat, alpha=-lr * (bias_correction2 ** 0.5) / bias_correction1)
+                if 'step' not in state:
+                    state['step'] = 0
+                    state['buf1'] = torch.zeros_like(p)
+                    state['buf2'] = torch.zeros_like(p)
+                
+                buf1, buf2 = state['buf1'], state['buf2']
+                state['step'] += 1
+                step = state['step']
+                
+                buf1.lerp_(g, 1 - beta1)
+                buf2.lerp_(g.square(), 1 - beta2)
+                
+                g = buf1 / (eps + buf2.sqrt())
+
+                bias_correction1 = 1 - beta1**step
+                bias_correction2 = 1 - beta2**step
+                
+                p.data.add_(g, alpha=-lr * (bias_correction2**0.5) / bias_correction1)
 
         return loss
 

@@ -17,7 +17,7 @@ WD := 0.1
 # Log directory
 LOGS_DIR := logs
 
-.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers quick-compare quick-compare-plot quick-compare-factorization simple-demo test-sizes all viz-muon viz-adamw viz-compare
+.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers quick-compare quick-compare-plot quick-compare-factorization qcfp-sym-id qcfp-sym-rot simple-demo test-sizes all viz-muon viz-adamw viz-compare
 
 h help:
 	@echo "Moonlight Training Makefile"
@@ -35,6 +35,8 @@ h help:
 	@echo "  compare-optimizers - Train all three optimizers with same config for comparison"
 	@echo "  quick-compare  - Quick efficiency comparison (AdamW vs Muon vs MORGN)"
 	@echo "  quick-compare-factorization - Compare on matrix factorization problem"
+	@echo "  qcfp-sym-id   - SPD factorization with identity eigenvectors (AdamW favored)"
+	@echo "  qcfp-sym-rot  - SPD factorization with rotated eigenvectors (Muon favored)"
 	@echo "  simple-demo    - Simple three-way demo on toy problem"
 	@echo "  test-sizes     - Test different model sizes (512, 896, 1024)"
 	@echo ""
@@ -147,17 +149,60 @@ qcp quick-compare-plot: ## Run quick comparison with convergence plot
 # Even smaller: python3 examples/quick_compare.py --steps 50 --hidden-size 128 --device mps --plot
 # Force CPU: CUDA_VISIBLE_DEVICES="" python3 examples/quick_compare.py --steps 10 --hidden-size 64 --device cpu
 
-qcfp quick-compare-factorization: ## Run quick comparison on matrix factorization problem, default condition number 100, 64x64 matrix
-	@echo "Running Muon vs AdamW on matrix factorization..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 examples/matrix_factorization_compare.py --matrix-size $(HIDDEN_SIZE) --steps 200 --plot; \
-	else \
-		python3 examples/matrix_factorization_compare.py --matrix-size $(HIDDEN_SIZE) --steps 200 --plot; \
-	fi
+qcfp quick-compare-factorization: ## Run quick comparison on matrix factorization problem, default condition number 1000, 896x896 matrix
+	@echo "Running Optimizer Comparisons on matrix factorization..."
+	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py --matrix-size $(HIDDEN_SIZE) --condition-number 1000.0 --steps 200 --plot; \
+	open matrix_factorization_comparison.png
 
 qcfp1000: ## Run quick comparison on matrix factorization problem with condition number 1000
-	@echo "Running AdamW vs Muon vs MORGN on matrix factorization with condition number 1000"
-	python3 examples/matrix_factorization_compare.py --condition-number 1000.0
+	@echo "Running Optimizer Comparisons on matrix factorization with condition number 1000"
+	python3 examples/matrix_factorization_compare.py 
+
+# SPD factorization showcase targets
+qcfp-sym-id: ## SPD factorization with identity eigenvectors (coordinate-aligned). AdamW should excel.
+	@echo "Running SPD factorization with identity eigenvectors (AdamW favored)..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
+			--symmetric --evec-mode identity --matrix-size 512 --condition-number 5000 \
+			--steps 300 --lr 1e-2 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png; \
+	else \
+		python3 examples/matrix_factorization_compare.py \
+			--symmetric --evec-mode identity --matrix-size 512 --condition-number 5000 \
+			--steps 300 --lr 1e-2 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png; \
+	fi
+	@open matrix_factorization_sym_id_n512_k5000_s300.png || true
+
+qcfp-sym-rot: ## SPD factorization with random eigenvectors (rotated). Muon should excel.
+	@echo "Running SPD factorization with rotated eigenvectors (Muon favored)..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
+			--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
+			--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
+			--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
+			--morgn-lr 7e-1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-directions 6 --morgn-step-clamp 0.2 \
+			--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s450.png; \
+	else \
+		python3 examples/matrix_factorization_compare.py \
+			--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
+			--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
+			--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
+			--morgn-lr 7e-1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-directions 6 --morgn-step-clamp 0.2 \
+			--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s450.png; \
+	fi
+	@open matrix_factorization_sym_random_n512_k5000_s450.png || true
+
+rp rotated-paraboloid: ## Run optimizer comparison on rotated paraboloid with correlated gradients
+	@echo "Running optimizer comparison on rotated paraboloid problem..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 examples/rotated_paraboloid_compare.py --dim 64 --condition-number 100 --rotation-angle 45 --steps 200 --plot; \
+	else \
+		python3 examples/rotated_paraboloid_compare.py --dim 64 --condition-number 100 --rotation-angle 45 --steps 200 --plot; \
+	fi
+	@[ -f rotated_paraboloid_comparison.png ] && open rotated_paraboloid_comparison.png || true
+
+rbp rotated-paraboloid-block: ## Run optimizer comparison on rotated paraboloid with correlated gradients, old block rotation method
+	python examples/rotated_paraboloid_compare.py --rotation-mode block --dim 64 --condition-number 100 --rotation-angle 45 --steps 200 --plot
+	@[ -f rotated_paraboloid_comparison.png ] && open rotated_paraboloid_comparison.png || true
 
 sd simple-demo: ## Run simple three-way optimizer demo on toy problem (30 seconds)
 	@echo "Running simple AdamW vs Muon vs MORGN demonstration..."

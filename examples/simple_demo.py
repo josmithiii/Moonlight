@@ -72,14 +72,7 @@ def train_model(model, optimizer_name, num_steps=50, lr=1e-2, seed=42):
         morgn_params = [p for p in model_copy.parameters() if p.ndim >= 2]
         adamw_params = [p for p in model_copy.parameters() if p.ndim < 2]
         
-        optimizer = MORGN(
-            lr=lr,
-            wd=0.0,
-            morgn_params=morgn_params,
-            adamw_params=adamw_params,
-            momentum=0.95,
-            ns_steps=5
-        )
+        optimizer = MORGN(lr=lr, wd=0.0, morgn_params=morgn_params, adamw_params=adamw_params)
     
     losses = []
     criterion = nn.MSELoss()

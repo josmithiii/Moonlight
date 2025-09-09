@@ -1,0 +1,37 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File (uv)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false,
+            "python": "${workspaceFolder}/.venv/bin/python"
+        },
+        {
+            "name": "Python: Matrix Factorization Compare (uv)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/matrix_factorization_compare.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false,
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "args": []
+        },
+        {
+            "name": "Python: Toy Train (uv)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/toy_train.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false,
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "args": ["--model", "qwen", "--optimizer", "muon", "--dataset", "openwebtext-100k", "--hidden_size", "896", "--lr", "1e-3"]
+        }
+    ]
+}

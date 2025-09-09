@@ -2224,5 +2224,8 @@ c<jos@josmp25:/l/mo> codex
 
   If you want, I can add a flag for Muon LR warmdown (e.g., --muon-lr-decay 0.1 at 70% steps) and a matching target to demonstrate Muon breaking through the plateau.
 
+▌Yes, let's warmdown Muon and speed up MORGN.  In principle, if it really gives a Newton step for the selected gradient directions, the ideal LR should be 1 (let Newton handle it).
+
+
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------

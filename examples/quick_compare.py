@@ -21,7 +21,7 @@ except ImportError:
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from examples.toy_train import Muon, get_optimizer
+from examples.toy_train import Muon, MORGN, get_optimizer
 
 # Set seeds for reproducibility
 def set_seed(seed=42):
@@ -66,13 +66,13 @@ def train_step(model, optimizer, data, device):
     return loss.item()
 
 def compare_optimizers(hidden_size=128, num_steps=100, lr=1e-3, device='cpu', seed=42):
-    """Compare Muon and AdamW on the same model architecture."""
-    print(f"\n{'='*60}")
-    print(f"Comparing Muon vs AdamW")
+    """Compare AdamW, Muon, and MORGN on the same model architecture."""
+    print(f"\n{'='*70}")
+    print(f"Comparing AdamW vs Muon vs MORGN")
     print(f"Model: Qwen2 (hidden_size={hidden_size}, layers=2)")
     print(f"Training steps: {num_steps}, LR: {lr}")
     print(f"Random seed: {seed} (fixed for fair comparison)")
-    print(f"{'='*60}\n")
+    print(f"{'='*70}\n")
     
     # Set initial seed for model creation
     set_seed(seed)
@@ -83,7 +83,7 @@ def compare_optimizers(hidden_size=128, num_steps=100, lr=1e-3, device='cpu', se
     
     results = {}
     
-    for optimizer_name in ['adamw', 'muon']:
+    for optimizer_name in ['adamw', 'muon', 'morgn']:
         print(f"\nTraining with {optimizer_name.upper()}...")
         
         # Reset seed for each optimizer to see same data
@@ -127,39 +127,44 @@ def compare_optimizers(hidden_size=128, num_steps=100, lr=1e-3, device='cpu', se
         print(f"    Training time: {train_time:.2f}s")
     
     # Compare results
-    print(f"\n{'='*60}")
+    print(f"\n{'='*70}")
     print("COMPARISON SUMMARY")
-    print(f"{'='*60}")
+    print(f"{'='*70}")
     
-    muon_final = results['muon']['final_loss']
-    adamw_final = results['adamw']['final_loss']
+    # Get final losses for all optimizers
+    final_losses = {name: results[name]['final_loss'] for name in results}
+    convergence_speeds = {name: results[name]['convergence_speed'] for name in results}
     
-    if muon_final < adamw_final:
-        improvement = ((adamw_final - muon_final) / adamw_final) * 100
-        print(f"✓ Muon achieved {improvement:.1f}% lower loss than AdamW")
-    else:
-        print(f"✗ AdamW achieved lower loss than Muon")
+    # Find best performer by final loss
+    best_optimizer = min(final_losses, key=final_losses.get)
+    print(f"🏆 Best final loss: {best_optimizer.upper()} ({final_losses[best_optimizer]:.6f})")
     
-    muon_conv = results['muon']['convergence_speed']
-    adamw_conv = results['adamw']['convergence_speed']
+    # Compare each optimizer to the best
+    for optimizer_name in ['adamw', 'muon', 'morgn']:
+        if optimizer_name == best_optimizer:
+            continue
+        improvement = ((final_losses[optimizer_name] - final_losses[best_optimizer]) / final_losses[optimizer_name]) * 100
+        if improvement > 0:
+            print(f"✓ {best_optimizer.upper()} achieved {improvement:.1f}% lower loss than {optimizer_name.upper()}")
     
-    if muon_conv > adamw_conv:
-        print(f"✓ Muon converged {muon_conv/adamw_conv:.2f}x faster than AdamW")
-    else:
-        print(f"✗ AdamW converged faster than Muon")
+    # Compare convergence speeds
+    best_conv = max(convergence_speeds, key=convergence_speeds.get)
+    print(f"🚀 Fastest convergence: {best_conv.upper()} ({convergence_speeds[best_conv]:.2f}x)")
     
-    # Find crossover point (where Muon becomes better)
-    muon_losses = results['muon']['losses']
-    adamw_losses = results['adamw']['losses']
-    
-    crossover_step = None
-    for i in range(min(len(muon_losses), len(adamw_losses))):
-        if muon_losses[i] < adamw_losses[i]:
-            crossover_step = i
-            break
-    
-    if crossover_step is not None:
-        print(f"✓ Muon became more efficient at step {crossover_step}")
+    # Find crossover points
+    for opt1 in ['muon', 'morgn']:
+        if opt1 in results:
+            adamw_losses = results['adamw']['losses']
+            opt_losses = results[opt1]['losses']
+            
+            crossover_step = None
+            for i in range(min(len(opt_losses), len(adamw_losses))):
+                if opt_losses[i] < adamw_losses[i]:
+                    crossover_step = i
+                    break
+            
+            if crossover_step is not None:
+                print(f"✓ {opt1.upper()} became better than AdamW at step {crossover_step}")
     
     return results
 
@@ -179,7 +184,7 @@ def plot_comparison(results, save_path='optimizer_comparison.png'):
     
     plt.xlabel('Training Step')
     plt.ylabel('Loss')
-    plt.title('Muon vs AdamW Convergence Comparison')
+    plt.title('AdamW vs Muon vs MORGN Convergence Comparison')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.yscale('log')

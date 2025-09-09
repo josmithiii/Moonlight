@@ -10,7 +10,7 @@ import os
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from examples.toy_train import Muon
+from examples.toy_train import Muon, MORGN
 
 # Set seeds for reproducibility
 def set_seed(seed=42):
@@ -54,7 +54,7 @@ def train_model(model, optimizer_name, num_steps=50, lr=1e-2, seed=42):
     # Create optimizer
     if optimizer_name == 'adamw':
         optimizer = torch.optim.AdamW(model_copy.parameters(), lr=lr)
-    else:  # muon
+    elif optimizer_name == 'muon':
         # Separate parameters for Muon
         muon_params = [p for p in model_copy.parameters() if p.ndim >= 2]
         adamw_params = [p for p in model_copy.parameters() if p.ndim < 2]
@@ -63,6 +63,19 @@ def train_model(model, optimizer_name, num_steps=50, lr=1e-2, seed=42):
             lr=lr,
             wd=0.0,
             muon_params=muon_params,
+            adamw_params=adamw_params,
+            momentum=0.95,
+            ns_steps=5
+        )
+    else:  # morgn
+        # Separate parameters for MORGN
+        morgn_params = [p for p in model_copy.parameters() if p.ndim >= 2]
+        adamw_params = [p for p in model_copy.parameters() if p.ndim < 2]
+        
+        optimizer = MORGN(
+            lr=lr,
+            wd=0.0,
+            morgn_params=morgn_params,
             adamw_params=adamw_params,
             momentum=0.95,
             ns_steps=5
@@ -89,7 +102,7 @@ def train_model(model, optimizer_name, num_steps=50, lr=1e-2, seed=42):
 
 def main():
     print("\n" + "="*60)
-    print("SIMPLE MUON vs ADAMW DEMONSTRATION")
+    print("SIMPLE THREE-WAY OPTIMIZER DEMONSTRATION")
     print("="*60)
     print("\nProblem: Simple 2-layer network regression")
     print("Network: 64 → 128 → 10")
@@ -114,66 +127,69 @@ def main():
     print(f"  Matrices (Muon): {matrix_params:,} ({matrix_params/total_params*100:.1f}%)")
     print(f"  Biases (AdamW): {bias_params:,} ({bias_params/total_params*100:.1f}%)")
     
-    # Train with both optimizers
+    # Train with all three optimizers
     print("\n" + "-"*60)
     print("Training with AdamW...")
     adamw_losses = train_model(base_model, 'adamw', seed=42)
     
     print("Training with Muon...")
-    muon_losses = train_model(base_model, 'muon', seed=42)  # Same seed for fair comparison
+    muon_losses = train_model(base_model, 'muon', seed=42)
+    
+    print("Training with MORGN...")
+    morgn_losses = train_model(base_model, 'morgn', seed=42)
     
     # Compare results
     print("\n" + "="*60)
     print("RESULTS COMPARISON")
     print("="*60)
     
+    # Store all results
+    results = {
+        'adamw': adamw_losses,
+        'muon': muon_losses,
+        'morgn': morgn_losses
+    }
+    
     # Initial and final losses
     print(f"\nInitial Loss:")
-    print(f"  AdamW: {adamw_losses[0]:.4f}")
-    print(f"  Muon:  {muon_losses[0]:.4f}")
+    for name, losses in results.items():
+        print(f"  {name.upper():6s}: {losses[0]:.4f}")
     
     print(f"\nFinal Loss (step 50):")
-    print(f"  AdamW: {adamw_losses[-1]:.4f}")
-    print(f"  Muon:  {muon_losses[-1]:.4f}")
+    for name, losses in results.items():
+        print(f"  {name.upper():6s}: {losses[-1]:.4f}")
     
     # Average loss over last 10 steps
-    adamw_final_avg = np.mean(adamw_losses[-10:])
-    muon_final_avg = np.mean(muon_losses[-10:])
+    final_avgs = {name: np.mean(losses[-10:]) for name, losses in results.items()}
     
     print(f"\nAverage Loss (last 10 steps):")
-    print(f"  AdamW: {adamw_final_avg:.4f}")
-    print(f"  Muon:  {muon_final_avg:.4f}")
+    for name, avg in final_avgs.items():
+        print(f"  {name.upper():6s}: {avg:.4f}")
     
-    # Convergence analysis
-    if muon_final_avg < adamw_final_avg:
-        improvement = ((adamw_final_avg - muon_final_avg) / adamw_final_avg) * 100
-        print(f"\n✓ Muon achieved {improvement:.1f}% lower loss")
-    else:
-        print(f"\n✗ AdamW achieved lower loss")
+    # Find best performer
+    best_optimizer = min(final_avgs, key=final_avgs.get)
+    print(f"\n🏆 Best performer: {best_optimizer.upper()} ({final_avgs[best_optimizer]:.4f})")
     
-    # Find when Muon becomes better
-    crossover = None
-    for i in range(min(len(muon_losses), len(adamw_losses))):
-        if muon_losses[i] < adamw_losses[i]:
-            crossover = i
-            break
-    
-    if crossover is not None:
-        print(f"✓ Muon became more efficient at step {crossover}")
+    # Compare to best
+    for name, avg in final_avgs.items():
+        if name != best_optimizer:
+            improvement = ((avg - final_avgs[best_optimizer]) / avg) * 100
+            if improvement > 0:
+                print(f"✓ {best_optimizer.upper()} achieved {improvement:.1f}% lower loss than {name.upper()}")
     
     # Show sample losses
     print("\n" + "-"*60)
     print("Sample Loss Values:")
-    print("Step |  AdamW  |  Muon  ")
-    print("-----|---------|--------")
+    print("Step |  AdamW  |  Muon   | MORGN  ")
+    print("-----|---------|---------|--------")
     for step in [0, 10, 20, 30, 40, 49]:
-        if step < len(adamw_losses) and step < len(muon_losses):
-            print(f"  {step:2d} | {adamw_losses[step]:7.4f} | {muon_losses[step]:7.4f}")
+        if step < min(len(losses) for losses in results.values()):
+            print(f"  {step:2d} | {results['adamw'][step]:7.4f} | {results['muon'][step]:7.4f} | {results['morgn'][step]:7.4f}")
     
     print("\n" + "="*60)
-    print("Key Insight: Muon's orthogonal updates help preserve")
-    print("gradient information, leading to more efficient training")
-    print("especially in the weight matrices.")
+    print("Key Insight: Different optimizers show varying performance")
+    print("on this toy problem. MORGN is currently a stub (SGD+momentum)")
+    print("and will be improved to demonstrate novel optimization techniques.")
     print("="*60)
 
 if __name__ == "__main__":

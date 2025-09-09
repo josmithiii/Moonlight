@@ -32,10 +32,10 @@ h help:
 	@echo "  train-both     - Train with both optimizers sequentially"
 	@echo ""
 	@echo "Comparison targets:"
-	@echo "  compare-optimizers - Train both optimizers with same config for comparison"
-	@echo "  quick-compare  - Quick 1-minute efficiency comparison (tiny model)"
+	@echo "  compare-optimizers - Train all three optimizers with same config for comparison"
+	@echo "  quick-compare  - Quick efficiency comparison (AdamW vs Muon vs MORGN)"
 	@echo "  quick-compare-factorization - Compare on matrix factorization problem"
-	@echo "  simple-demo    - Simple 30-second demo on toy problem"
+	@echo "  simple-demo    - Simple three-way demo on toy problem"
 	@echo "  test-sizes     - Test different model sizes (512, 896, 1024)"
 	@echo ""
 	@echo "Visualization targets:"
@@ -113,19 +113,23 @@ all: install-deps train-both
 
 # Comparison experiments
 co compare-optimizers: $(LOGS_DIR)
-	@echo "Comparing Muon vs AdamW with identical configurations..."
-	@echo "Training with Muon..."
-	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
-		--model $(MODEL) --optimizer muon --dataset $(DATASET) \
-		--hidden_size $(HIDDEN_SIZE) --lr $(LR) --wd $(WD)
+	@echo "Comparing AdamW vs Muon vs MORGN with identical configurations..."
 	@echo "Training with AdamW..."
 	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
 		--model $(MODEL) --optimizer adamw --dataset $(DATASET) \
 		--hidden_size $(HIDDEN_SIZE) --lr $(LR) --wd $(WD)
+	@echo "Training with Muon..."
+	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
+		--model $(MODEL) --optimizer muon --dataset $(DATASET) \
+		--hidden_size $(HIDDEN_SIZE) --lr $(LR) --wd $(WD)
+	@echo "Training with MORGN..."
+	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
+		--model $(MODEL) --optimizer morgn --dataset $(DATASET) \
+		--hidden_size $(HIDDEN_SIZE) --lr $(LR) --wd $(WD)
 	@echo "Check $(LOGS_DIR)/ for training logs to compare performance"
 
-qc quick-compare: ## Run quick efficiency comparison between Muon and AdamW (1 minute)
-	@echo "Running quick Muon vs AdamW comparison..."
+qc quick-compare: ## Run quick efficiency comparison between AdamW, Muon, and MORGN
+	@echo "Running quick AdamW vs Muon vs MORGN comparison..."
 	@if [ -f .venv/bin/activate ]; then \
 		source .venv/bin/activate && python3 examples/quick_compare.py --steps 100 --hidden-size 128; \
 	else \
@@ -152,11 +156,11 @@ qcfp quick-compare-factorization: ## Run quick comparison on matrix factorizatio
 	fi
 
 qcfp1000: ## Run quick comparison on matrix factorization problem with condition number 1000
-	@echo "Running Muon vs AdamW on matrix factorization with condition number 1000"
+	@echo "Running AdamW vs Muon vs MORGN on matrix factorization with condition number 1000"
 	python3 examples/matrix_factorization_compare.py --condition-number 1000.0
 
-sd simple-demo: ## Run simple Muon vs AdamW demo on toy problem (30 seconds)
-	@echo "Running simple Muon vs AdamW demonstration..."
+sd simple-demo: ## Run simple three-way optimizer demo on toy problem (30 seconds)
+	@echo "Running simple AdamW vs Muon vs MORGN demonstration..."
 	@if [ -f .venv/bin/activate ]; then \
 		source .venv/bin/activate && python3 examples/simple_demo.py; \
 	else \

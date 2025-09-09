@@ -275,6 +275,154 @@ class Muon(torch.optim.Optimizer):
         return loss
 
 
+class MORGN(torch.optim.Optimizer):
+    """
+    MORGN - MORe Generic Newton (placeholder implementation)
+    
+    This is a stub implementation that will be expanded later.
+    For now, it mimics Muon's interface but uses simple SGD internally.
+    
+    Arguments:
+        morgn_params: The parameters to be optimized by MORGN (same as muon_params)
+        lr: The learning rate
+        momentum: The momentum used by the internal SGD (0.95 is a good default)
+        nesterov: Whether to use Nesterov-style momentum (recommended)
+        ns_steps: Number of Newton-Schulz iterations (placeholder, not used yet)
+        adamw_params: Parameters to be optimized by AdamW fallback
+        adamw_betas: The betas for the internal AdamW
+        adamw_eps: The epsilon for the internal AdamW
+        wd: Weight decay
+    """
+
+    def __init__(
+        self,
+        lr: float = 1e-3,
+        wd: float = 0.1,
+        morgn_params=None,
+        momentum: float = 0.95,
+        nesterov: bool = True,
+        ns_steps: int = 5,
+        adamw_params=None,
+        adamw_betas: tuple[float, float] = (0.9, 0.95),
+        adamw_eps: float = 1e-8,
+    ):
+        # Use same parameter names as Muon for compatibility
+        if morgn_params is None:
+            morgn_params = []
+        if adamw_params is None:
+            adamw_params = []
+
+        defaults = dict(
+            lr=lr,
+            wd=wd,
+            momentum=momentum,
+            nesterov=nesterov,
+            ns_steps=ns_steps,
+            adamw_betas=adamw_betas,
+            adamw_eps=adamw_eps,
+        )
+
+        params = list(morgn_params)
+        params.extend(list(adamw_params))
+        super().__init__(params, defaults)
+        
+        # Sort parameters into those for which we will use MORGN, and those for which we will not
+        for p in morgn_params:
+            assert p.ndim == 2, p.ndim
+            self.state[p] = {"use_morgn": True}
+        for p in adamw_params:
+            self.state[p] = {"use_morgn": False}
+
+    def adjust_lr_for_morgn(self, lr: float, param_shape: tuple[int, ...]) -> float:
+        """Adjust learning rate for MORGN (placeholder - same as Muon for now)."""
+        A, B = param_shape[:2]
+        adjusted_ratio = 0.2 * math.sqrt(max(A, B))
+        adjusted_lr = lr * adjusted_ratio
+        return adjusted_lr
+
+    def step(self, closure=None):
+        """Perform a single optimization step."""
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+
+            ############################
+            #          MORGN           #
+            ############################
+
+            params = [p for p in group["params"] if self.state[p]["use_morgn"]]
+            lr = group["lr"]
+            wd = group["wd"]
+            momentum = group["momentum"]
+
+            # MORGN implementation (stub - currently just SGD with momentum)
+            for p in params:
+                g = p.grad
+                if g is None:
+                    continue
+
+                state = self.state[p]
+                
+                # Initialize momentum buffer
+                if "momentum_buffer" not in state:
+                    state["momentum_buffer"] = torch.zeros_like(p)
+                
+                buf = state["momentum_buffer"]
+                buf.mul_(momentum).add_(g)
+                
+                if group["nesterov"]:
+                    update = g + momentum * buf
+                else:
+                    update = buf
+
+                # Adjust learning rate (same as Muon for now)
+                adjusted_lr = self.adjust_lr_for_morgn(lr, p.shape)
+
+                # Apply weight decay
+                p.data.mul_(1 - lr * wd)
+
+                # Apply update
+                p.data.add_(update, alpha=-adjusted_lr)
+
+            ############################
+            #       AdamW backup       #
+            ############################
+
+            params = [p for p in group["params"] if not self.state[p]["use_morgn"]]
+            lr = group['lr']
+            beta1, beta2 = group['adamw_betas']
+            eps = group['adamw_eps']
+
+            for p in params:
+                g = p.grad
+                if g is None:
+                    continue
+                state = self.state[p]
+                if 'step' not in state:
+                    state['step'] = 0
+                    state['buf1'] = torch.zeros_like(p)
+                    state['buf2'] = torch.zeros_like(p)
+                
+                buf1, buf2 = state['buf1'], state['buf2']
+                state['step'] += 1
+                step = state['step']
+                
+                buf1.lerp_(g, 1 - beta1)
+                buf2.lerp_(g.square(), 1 - beta2)
+                
+                g = buf1 / (eps + buf2.sqrt())
+
+                bias_correction1 = 1 - beta1**step
+                bias_correction2 = 1 - beta2**step
+                
+                p.data.add_(g, alpha=-lr * (bias_correction2**0.5) / bias_correction1)
+
+        return loss
+
+
 def get_model_and_dataloader(model_name, dataset_name, hidden_size):
     name2path = {
         "openwebtext-100k": "Elriggs/openwebtext-100k",
@@ -345,8 +493,28 @@ def get_optimizer(optimizer_name, model, lr=1e-3, wd=0.1):
             muon_params=muon_params,
             adamw_params=adamw_params,
         )
+    elif optimizer_name == "morgn":
+        morgn_params = [
+            p
+            for name, p in model.named_parameters()
+            if p.ndim >= 2 and "embed_tokens" not in name and "lm_head" not in name
+        ]
+        adamw_params = [
+            p
+            for name, p in model.named_parameters()
+            if not (
+                p.ndim >= 2 and "embed_tokens" not in name and "lm_head" not in name
+            )
+        ]
+
+        return MORGN(
+            lr=lr,
+            wd=wd,
+            morgn_params=morgn_params,
+            adamw_params=adamw_params,
+        )
     else:
-        assert 0, "optimizer not supported"
+        assert 0, f"optimizer {optimizer_name} not supported"
 
 
 if __name__ == "__main__":

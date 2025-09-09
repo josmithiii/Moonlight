@@ -20,7 +20,7 @@ except ImportError:
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from examples.toy_train import Muon, get_optimizer
+from examples.toy_train import Muon, MORGN, get_optimizer
 
 def set_seed(seed: int = 42) -> None:
     """Set all random seeds for reproducibility."""
@@ -99,13 +99,24 @@ def train_factorization(target_matrix: torch.Tensor, optimizer_name: str,
     # Create optimizer
     if optimizer_name == 'adamw':
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.0)
-    else:  # muon
+    elif optimizer_name == 'muon':
         muon_params, adamw_params = model.get_muon_adamw_params()
         
         optimizer = Muon(
             lr=lr,
             wd=0.0,
             muon_params=muon_params,
+            adamw_params=adamw_params,
+            momentum=0.95,
+            ns_steps=5
+        )
+    else:  # morgn
+        morgn_params, adamw_params = model.get_muon_adamw_params()
+        
+        optimizer = MORGN(
+            lr=lr,
+            wd=0.0,
+            morgn_params=morgn_params,
             adamw_params=adamw_params,
             momentum=0.95,
             ns_steps=5
@@ -176,9 +187,9 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                                 condition_number: float = 100.0,
                                 device: torch.device = torch.device('cpu'), 
                                 seed: int = 42) -> dict:
-    """Compare Muon and AdamW on matrix factorization task."""
+    """Compare AdamW, Muon, and MORGN on matrix factorization task."""
     print(f"\n{'='*70}")
-    print(f"Matrix Factorization: Muon vs AdamW Comparison")
+    print(f"Matrix Factorization: AdamW vs Muon vs MORGN")
     print(f"{'='*70}")
     print(f"Problem: Factorize positive definite matrix")
     print(f"Matrix size: {matrix_size}x{matrix_size}")
@@ -207,7 +218,7 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
     
     results = {}
     
-    for optimizer_name in ['adamw', 'muon']:
+    for optimizer_name in ['adamw', 'muon', 'morgn']:
         print(f"\nTraining with {optimizer_name.upper()}...")
         
         start_time = time.time()
@@ -239,27 +250,27 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
     print("COMPARISON SUMMARY")
     print(f"{'='*70}")
     
-    muon_loss = results['muon']['final_loss']
-    adamw_loss = results['adamw']['final_loss']
+    # Get final losses and relative errors for all optimizers
+    final_losses = {name: results[name]['final_loss'] for name in results}
+    relative_errors = {name: results[name]['relative_error'] for name in results}
     
-    if muon_loss < adamw_loss:
-        improvement = ((adamw_loss - muon_loss) / adamw_loss) * 100
-        print(f"✓ Muon achieved {improvement:.1f}% lower loss than AdamW")
-    else:
-        print(f"✗ AdamW achieved lower loss than Muon")
+    # Find best performer by final loss
+    best_loss_optimizer = min(final_losses, key=final_losses.get)
+    print(f"🏆 Best final loss: {best_loss_optimizer.upper()} ({final_losses[best_loss_optimizer]:.6f})")
     
-    muon_rel_err = results['muon']['relative_error']
-    adamw_rel_err = results['adamw']['relative_error']
+    # Compare each optimizer to the best
+    for optimizer_name in results:
+        if optimizer_name == best_loss_optimizer:
+            continue
+        improvement = ((final_losses[optimizer_name] - final_losses[best_loss_optimizer]) / final_losses[optimizer_name]) * 100
+        if improvement > 0:
+            print(f"✓ {best_loss_optimizer.upper()} achieved {improvement:.1f}% lower loss than {optimizer_name.upper()}")
     
-    if muon_rel_err < adamw_rel_err:
-        improvement = ((adamw_rel_err - muon_rel_err) / adamw_rel_err) * 100
-        print(f"✓ Muon achieved {improvement:.1f}% lower relative error than AdamW")
+    # Find best by relative error
+    best_error_optimizer = min(relative_errors, key=relative_errors.get)
+    print(f"🎯 Best relative error: {best_error_optimizer.upper()} ({relative_errors[best_error_optimizer]:.4f})")
     
     # Check convergence speed
-    muon_losses = results['muon']['losses']
-    adamw_losses = results['adamw']['losses']
-    
-    # Find when each optimizer reaches 90% of its final performance
     def find_convergence_step(losses, threshold=0.9):
         if not losses:
             return len(losses)
@@ -272,11 +283,17 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                 return i
         return len(losses)
     
-    muon_conv_step = find_convergence_step(muon_losses)
-    adamw_conv_step = find_convergence_step(adamw_losses)
+    convergence_steps = {name: find_convergence_step(results[name]['losses']) for name in results}
+    fastest_convergence = min(convergence_steps, key=convergence_steps.get)
+    print(f"🚀 Fastest convergence: {fastest_convergence.upper()} (step {convergence_steps[fastest_convergence]})")
     
-    if muon_conv_step < adamw_conv_step:
-        print(f"✓ Muon converged faster (step {muon_conv_step} vs {adamw_conv_step})")
+    # Show convergence comparison
+    for name, step in convergence_steps.items():
+        if name != fastest_convergence:
+            if step < len(results[name]['losses']):
+                print(f"   {name.upper()} converged at step {step}")
+            else:
+                print(f"   {name.upper()} did not fully converge")
     
     return results
 
@@ -296,7 +313,7 @@ def plot_matrix_factorization_comparison(results: dict, save_path: str = 'matrix
     
     axes[0].set_xlabel('Training Step')
     axes[0].set_ylabel('MSE Loss')
-    axes[0].set_title('Matrix Factorization: Loss Curves')
+    axes[0].set_title('Matrix Factorization: AdamW vs Muon vs MORGN')
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
     axes[0].set_yscale('log')
@@ -386,9 +403,10 @@ def main():
         plot_matrix_factorization_comparison(results)
     
     print("\nMatrix factorization experiment complete!")
-    print("\nKey insight: Muon's orthogonal updates should be particularly")
-    print("effective for matrix factorization since the problem structure")
-    print("naturally involves matrix operations that benefit from orthogonality.")
+    print("\nKey insight: This three-way comparison shows how different")
+    print("optimizers perform on matrix factorization problems.")
+    print("MORGN is currently a stub (SGD+momentum) but will be enhanced")
+    print("to demonstrate novel optimization techniques.")
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,17 @@
+[project]
+name = "moonlight"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets==3.3.2",
+    "loguru==0.7.3",
+    "matplotlib>=3.10.6",
+    "numpy==2.2.3",
+    "setuptools>=69.0.0",
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "tqdm==4.67.1",
+    "transformers==4.49.0",
+]

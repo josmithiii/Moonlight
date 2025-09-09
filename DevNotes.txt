@@ -2226,6 +2226,50 @@ c<jos@josmp25:/l/mo> codex
 
 ▌Yes, let's warmdown Muon and speed up MORGN.  In principle, if it really gives a Newton step for the selected gradient directions, the ideal LR should be 1 (let Newton handle it).
 
+...
+
+> Committed the progress and tuned both Muon and MORGN.
+
+  What changed (summary)
+
+  - Muon
+      - Added warmdown: decays LR once late in training to break plateaus.
+      - Flags: --muon-lr-warmdown-at, --muon-lr-decay-factor.
+  - MORGN (Recursive Gauss-Newton)
+      - Implemented left preconditioning with rank-1 RLS (Sherman–Morrison) on P.
+      - Step clamp on parameter updates; flags exposed for LR, λ, ε, directions, clamp.
+      - Makefile qcfp-sym-rot now explores faster MORGN with clamp.
+  - Plot filenames
+      - Auto-named or via --out; Make targets open unique files.
+  - Stability
+      - SPD eigvals via eigvalsh on CPU; guards against NaN/Inf.
+
+  Why Muon plateaued and why it now drops
+
+  - Muon’s orthogonalized update keeps a near-constant step magnitude near the solution, creating a noise floor. Warmdown reduces that step and lets it descend further (your ‘id’
+  result shows it cleanly).
+
+  MORGN behavior in ‘rot’
+
+  - The spike and oscillations likely come from aggressive LR with evolving P (λ<1) plus step clamp interaction. Even with a Newton-like preconditioner, P is approximate and updated
+  with top-k columns, so an LR of 1 can overshoot. Your run used 0.7; that’s high but instructive.
+
+  Next steps I recommend
+
+  - Muon schedule: optionally add a second warmdown at 90% or use cosine decay only for Muon to further smooth late-phase descent.
+  - MORGN tuning:
+      - Try --morgn-lr 0.2–0.4 with the current λ=0.997 and clamp 0.2; observe if the spike disappears.
+      - Or ramp LR up: start 0.1 → linearly to 0.5 over first 30% steps (I can add a simple ramp flag).
+      - Add small Levenberg–Marquardt damping to the denominator: denom = λ + vᵀPv + δ (e.g., δ=1e-3) for extra robustness.
+      - Option: normalize assimilated columns (v ← v / max(||v||, ε)) before RLS to reduce sensitivity to per-column scale.
+  - Experiments:
+      - Increase disparity (condition number 1e4) and steps to 600. Rotated SPD should then clearly favor Muon; MORGN may match with good LR/clamp.
+      - Log norms: add optional logging of ||G||F and ||ΔW||F for each optimizer to reason about spikes vs clamp.
+
+  If you want, I can:
+
+  - Add a Muon cosine decay option and an MORGN LR ramp + damping flag.
+  - Add a third Makefile target (qcfp-sym-rot-morgn-fast) tuned to push MORGN without spikes.
 
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------

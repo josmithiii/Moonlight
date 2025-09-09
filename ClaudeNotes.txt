@@ -224,5 +224,148 @@ would fall back to AdamW optimization.
   This explains why the optimizers perform differently on each task - the matrix factorization problem is much more focused on the specific matrix operations that Muon's
   orthogonalization targets, while the language model has many diverse parameter types where only some benefit from orthogonal updates.
   
+> Ok, so @examples/toy_train.py is basically just a Transformer, right?  I think I understand hidden_size, but what is intermediate_size?
+  ⎿  Read examples/toy_train.py (564 lines)
+
+⏺ Yes, exactly! examples/toy_train.py creates a Qwen2 transformer language model.
+
+  Looking at the config in toy_train.py:
+
+  config = Qwen2Config(
+      hidden_size=hidden_size,        # Main model dimension
+      intermediate_size=4864,         # Feed-forward layer dimension
+      num_hidden_layers=12,
+      num_attention_heads=16,
+      # ...
+  )
+
+  hidden_size vs intermediate_size
+
+  hidden_size: The main model dimension - size of token embeddings and hidden states throughout the transformer
+  - All attention operations work in this dimension
+  - Residual connections preserve this size
+  - This is what you vary when you change --hidden_size (default 1024)
+
+  intermediate_size: The dimension of the feed-forward network inside each transformer block
+  - Each transformer layer has: Attention → Feed-Forward → Next Layer
+  - The feed-forward does: hidden_size → intermediate_size → hidden_size
+  - It's the "expansion" dimension in the MLP bottleneck
+  - Fixed at 4864 in this code (not parameterized)
+
+  Standard Transformer Block Structure:
+
+  Input (hidden_size)
+      ↓
+  Multi-Head Attention (hidden_size → hidden_size)
+      ↓
+  Add & Norm
+      ↓
+  Feed-Forward:
+      Linear1: hidden_size → intermediate_size (4864)
+      Activation (SiLU)
+      Linear2: intermediate_size → hidden_size
+      ↓
+  Add & Norm
+      ↓
+  Output (hidden_size)
+
+  So when you set --hidden_size 896, you get a transformer where:
+  - Token embeddings are 896-dimensional
+  - Attention works in 896D space
+  - But the feed-forward layers expand to 4864D internally, then back to 896D
+
+  The intermediate_size is typically 4× the hidden_size, but here it's fixed regardless of your hidden_size setting.
+
+> I see that the Muon optimizer works on the various 896x896 matrices using its special algorithm, but does it also operate on the feed-forward layers?  Or do those fall back to
+  AdamW?  The parameters would have to be made 2D somehow.
+
+⏺ Great question! Let me trace through how Muon handles the feed-forward layers by looking at the parameter separation logic:
+
+⏺ Search(pattern: "muon_params.*=", path: "examples/toy_train.py", output_mode: "content")
+  ⎿  Found 35 lines (ctrl+r to expand)
+
+⏺ Now let me look at how Muon handles gradients that might not be exactly 2D:
+
+⏺ Search(pattern: "g.ndim > 2", path: "examples/toy_train.py", output_mode: "content")
+  ⎿  Found 6 lines (ctrl+r to expand)
+
+⏺ Perfect! Now I can answer your question:
+
+  Yes, Muon DOES operate on feed-forward layers!
+
+  Here's exactly how it works:
+
+  Parameter Selection (lines 476-488):
+
+  muon_params = [
+      p for name, p in model.named_parameters()
+      if p.ndim >= 2 and "embed_tokens" not in name and "lm_head" not in name
+  ]
+
+  Feed-forward layers ARE included because:
+  - ✅ Linear layer weights are 2D matrices:
+    - gate_proj: (4864, 896)
+    - up_proj: (4864, 896)
+    - down_proj: (896, 4864)
+  - ✅ They don't contain "embed_tokens" or "lm_head" in their names
+  - ✅ They satisfy p.ndim >= 2
+
+  Gradient Reshaping (lines 216-217):
+
+  if g.ndim > 2:
+      g = g.view(g.size(0), -1)
+
+  This handles any higher-dimensional tensors by flattening them into 2D matrices for the Newton-Schulz orthogonalization.
+
+  What Gets Muon vs AdamW:
+
+  ✅ Muon optimizes:
+  - All attention weight matrices (Q, K, V, O projections)
+  - All feed-forward weight matrices (gate, up, down projections)
+  - Any other 2D weight matrices
+
+  ❌ AdamW optimizes:
+  - Embedding tables (embed_tokens)
+  - Output head weights (lm_head)
+  - All bias terms (1D)
+  - Layer norm parameters (1D)
+
+  So yes, Muon's orthogonal updates are applied to the feed-forward layers! Those 896→4864 and 4864→896 linear transformations get the full Newton-Schulz orthogonalization
+  treatment, which should be particularly beneficial since they're doing the heavy lifting in terms of nonlinear transformations.
+
+> My memory might be fuzzy on Transformer details, but did it originally have both a gate_proj and an up_proj?  I expected only up_proj (plain MLP with one hidden layer).
+
+⏺ You're absolutely right! Your memory is spot-on. 🎯
+
+  Original Transformer (2017) - Simple MLP:
+
+  Feed-Forward Block:
+  Linear1: hidden_size → intermediate_size (up projection)
+  ReLU activation
+  Linear2: intermediate_size → hidden_size (down projection)
+
+  Just two linear layers with ReLU in between - a standard MLP.
+
+  Modern Transformers - Gated MLP:
+
+  The Qwen2 architecture (like many recent models) uses a gated feed-forward network with three linear layers:
+
+  # Modern gated FFN (SwiGLU/GeGLU variant):
+  gate = gate_proj(x)      # hidden_size → intermediate_size
+  up = up_proj(x)          # hidden_size → intermediate_size
+  gated = gate * activation(up)  # Element-wise multiplication
+  output = down_proj(gated) # intermediate_size → hidden_size
+
+  Why the Change?
+
+  - Better expressiveness: The gating mechanism lets the network control information flow more selectively
+  - SwiGLU/GeGLU: These gated activations often outperform simple ReLU/GELU
+  - Used in: LLaMA, PaLM, Qwen, many other modern LLMs
+
+  So you're correct - the original Transformer was much simpler! The gate_proj is a more recent innovation that's become standard in modern language models. The extra matrix
+  gives Muon even more 2D weight matrices to apply its orthogonal updates to.
+
+  Classic case of architecture evolution making things more complex but more effective! 📈
+
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------

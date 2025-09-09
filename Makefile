@@ -17,7 +17,7 @@ WD := 0.1
 # Log directory
 LOGS_DIR := logs
 
-.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers quick-compare quick-compare-plot simple-demo test-sizes all viz-muon viz-adamw viz-compare
+.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers quick-compare quick-compare-plot quick-compare-factorization simple-demo test-sizes all viz-muon viz-adamw viz-compare
 
 h help:
 	@echo "Moonlight Training Makefile"
@@ -34,6 +34,7 @@ h help:
 	@echo "Comparison targets:"
 	@echo "  compare-optimizers - Train both optimizers with same config for comparison"
 	@echo "  quick-compare  - Quick 1-minute efficiency comparison (tiny model)"
+	@echo "  quick-compare-factorization - Compare on matrix factorization problem"
 	@echo "  simple-demo    - Simple 30-second demo on toy problem"
 	@echo "  test-sizes     - Test different model sizes (512, 896, 1024)"
 	@echo ""
@@ -141,6 +142,18 @@ qcp quick-compare-plot: ## Run quick comparison with convergence plot
 
 # Even smaller: python3 examples/quick_compare.py --steps 50 --hidden-size 128 --device mps --plot
 # Force CPU: CUDA_VISIBLE_DEVICES="" python3 examples/quick_compare.py --steps 10 --hidden-size 64 --device cpu
+
+qcfp quick-compare-factorization: ## Run quick comparison on matrix factorization problem, default condition number 100
+	@echo "Running Muon vs AdamW on matrix factorization..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 examples/matrix_factorization_compare.py --matrix-size 64 --steps 200 --plot; \
+	else \
+		python3 examples/matrix_factorization_compare.py --matrix-size 64 --steps 200 --plot; \
+	fi
+
+qcfp1000: ## Run quick comparison on matrix factorization problem with condition number 1000
+	@echo "Running Muon vs AdamW on matrix factorization with condition number 1000"
+	python3 examples/matrix_factorization_compare.py --condition-number 1000.0
 
 sd simple-demo: ## Run simple Muon vs AdamW demo on toy problem (30 seconds)
 	@echo "Running simple Muon vs AdamW demonstration..."

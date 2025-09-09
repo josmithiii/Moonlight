@@ -59,8 +59,9 @@ class MoonDataset(Dataset):
 
 # This code snippet is a modified version adapted from the following GitHub repository:
 # https://github.com/KellerJordan/Muon/blob/master/muon.py
-@torch.compile
-def zeropower_via_newtonschulz5(G, steps):
+
+# Create compiled and non-compiled versions
+def _zeropower_via_newtonschulz5_impl(G, steps):
     """
     Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
     quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose
@@ -72,7 +73,13 @@ def zeropower_via_newtonschulz5(G, steps):
     """
     assert len(G.shape) == 2
     a, b, c = (3.4445, -4.7750, 2.0315)
-    X = G.bfloat16()
+    
+    # Use bfloat16 on CUDA, but float32 on MPS/CPU for compatibility
+    if G.device.type == 'cuda':
+        X = G.bfloat16()
+    else:
+        X = G.float()
+    
     if G.size(0) > G.size(1):
         X = X.T
     # Ensure spectral norm is at most 1
@@ -88,6 +95,21 @@ def zeropower_via_newtonschulz5(G, steps):
     if G.size(0) > G.size(1):
         X = X.T
     return X
+
+# Create compiled version for CUDA/CPU
+_zeropower_compiled = torch.compile(_zeropower_via_newtonschulz5_impl)
+
+def zeropower_via_newtonschulz5(G, steps):
+    """
+    Conditionally compiled Newton-Schulz function.
+    Uses torch.compile on CUDA/CPU for performance, but skips on MPS for compatibility.
+    """
+    if G.device.type == 'mps':
+        # Use non-compiled version on MPS to avoid compatibility issues
+        return _zeropower_via_newtonschulz5_impl(G, steps)
+    else:
+        # Use compiled version on CUDA/CPU for better performance
+        return _zeropower_compiled(G, steps)
 
 
 class Muon(torch.optim.Optimizer):

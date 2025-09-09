@@ -17,7 +17,7 @@ WD := 0.1
 # Log directory
 LOGS_DIR := logs
 
-.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers test-sizes all viz-muon viz-adamw viz-compare
+.PHONY: help setup setup-runpod clean train-muon train-adamw train-both compare-optimizers quick-compare quick-compare-plot simple-demo test-sizes all viz-muon viz-adamw viz-compare
 
 h help:
 	@echo "Moonlight Training Makefile"
@@ -33,6 +33,8 @@ h help:
 	@echo ""
 	@echo "Comparison targets:"
 	@echo "  compare-optimizers - Train both optimizers with same config for comparison"
+	@echo "  quick-compare  - Quick 1-minute efficiency comparison (tiny model)"
+	@echo "  simple-demo    - Simple 30-second demo on toy problem"
 	@echo "  test-sizes     - Test different model sizes (512, 896, 1024)"
 	@echo ""
 	@echo "Visualization targets:"
@@ -109,7 +111,7 @@ train-both: install-deps train-muon train-adamw
 all: install-deps train-both
 
 # Comparison experiments
-compare-optimizers: $(LOGS_DIR)
+co compare-optimizers: $(LOGS_DIR)
 	@echo "Comparing Muon vs AdamW with identical configurations..."
 	@echo "Training with Muon..."
 	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
@@ -120,6 +122,33 @@ compare-optimizers: $(LOGS_DIR)
 		--model $(MODEL) --optimizer adamw --dataset $(DATASET) \
 		--hidden_size $(HIDDEN_SIZE) --lr $(LR) --wd $(WD)
 	@echo "Check $(LOGS_DIR)/ for training logs to compare performance"
+
+qc quick-compare: ## Run quick efficiency comparison between Muon and AdamW (1 minute)
+	@echo "Running quick Muon vs AdamW comparison..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 examples/quick_compare.py --steps 100 --hidden-size 128; \
+	else \
+		python3 examples/quick_compare.py --steps 100 --hidden-size 128; \
+	fi
+
+qcp quick-compare-plot: ## Run quick comparison with convergence plot
+	@echo "Running quick comparison with plot generation..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 examples/quick_compare.py --steps 200 --hidden-size 256 --plot; \
+	else \
+		python3 examples/quick_compare.py --steps 200 --hidden-size 256 --plot; \
+	fi
+
+# Even smaller: python3 examples/quick_compare.py --steps 50 --hidden-size 128 --device mps --plot
+# Force CPU: CUDA_VISIBLE_DEVICES="" python3 examples/quick_compare.py --steps 10 --hidden-size 64 --device cpu
+
+sd simple-demo: ## Run simple Muon vs AdamW demo on toy problem (30 seconds)
+	@echo "Running simple Muon vs AdamW demonstration..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python3 examples/simple_demo.py; \
+	else \
+		python3 examples/simple_demo.py; \
+	fi
 
 # Test different model sizes
 test-sizes: $(LOGS_DIR)
@@ -177,7 +206,7 @@ dclean dist-clean: clean ## make clean plus deleting any downloaded and pre-proc
 # VISUALIZATION TARGETS "viz*"
 
 
-viz-muon: ## Generate diagrams showing Muon optimizer architecture
+vm viz-muon: ## Generate diagrams showing Muon optimizer architecture
 	@echo "Generating Muon optimizer diagrams..."
 	@if [ -f .venv/bin/activate ]; then \
 		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --optimizer muon; \
@@ -185,7 +214,7 @@ viz-muon: ## Generate diagrams showing Muon optimizer architecture
 		python3 viz/enhanced_model_diagrams.py --optimizer muon; \
 	fi
 
-viz-adamw: ## Generate diagrams showing AdamW optimizer architecture  
+va viz-adamw: ## Generate diagrams showing AdamW optimizer architecture  
 	@echo "Generating AdamW optimizer diagrams..."
 	@if [ -f .venv/bin/activate ]; then \
 		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --optimizer adamw; \
@@ -193,7 +222,7 @@ viz-adamw: ## Generate diagrams showing AdamW optimizer architecture
 		python3 viz/enhanced_model_diagrams.py --optimizer adamw; \
 	fi
 
-viz-compare: ## Generate comparison diagrams for Muon vs AdamW
+vc viz-compare: ## Generate comparison diagrams for Muon vs AdamW
 	@echo "Generating optimizer comparison diagrams..."
 	@if [ -f .venv/bin/activate ]; then \
 		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --compare-optimizers; \
@@ -202,4 +231,4 @@ viz-compare: ## Generate comparison diagrams for Muon vs AdamW
 	fi
 
 # Environment check before running training
-.PHONY: check-env list-logs smoke-test train-custom viz-muon viz-adamw viz-compare
+.PHONY: check-env list-logs smoke-test train-custom quick-compare quick-compare-plot simple-demo viz-muon viz-adamw viz-compare

@@ -149,8 +149,18 @@ would fall back to AdamW optimization.
   - Fast convergence: Muon becomes more efficient at step 3
   - MPS acceleration: 2.26s vs 1.25s (acceptable overhead for orthogonalization benefits)
 
-  The demonstrations now provide a scientifically valid comparison showing Muon's efficiency gains even on small models, with identical initial conditions and reproducible
-  results.
+  The demonstrations now provide a scientifically valid comparison
+  showing Muon's efficiency gains even on small models, with identical
+  initial conditions and reproducible results.
+
+---
+
+  What Users Can Now Do:
+
+  make sd         # 30s demo showing Muon efficiency on toy problem
+  make qc         # 1min comparison with identical initial conditions
+  make qcp        # 2min comparison with convergence plot
+  make vm         # Visualize Muon optimizer architecture
 
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------

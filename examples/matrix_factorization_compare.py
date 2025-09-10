@@ -161,7 +161,23 @@ def train_factorization(target_matrix: torch.Tensor, optimizer_name: str,
                        morgn_lr: float | None = None,
                        morgn_lambda: float = 0.99,
                        morgn_eps: float = 1e-3,
+                       morgn_directions: int = 8,
+                       morgn_two_sided: bool = False,
+                       morgn_right_lambda: float | None = None,
+                       morgn_right_directions: int | None = None,
+                       morgn_precond_warmup_steps: int = 0,
+                       morgn_precond_warmup_exp: float = 1.0,
+                       morgn_momentum: float = 0.0,
+                       morgn_nesterov: bool = False,
+                       morgn_clamp_warmdown_at: float = 0.0,
+                       morgn_clamp_decay_factor: float = 1.0,
+                       morgn_lr_warmdown_at: float = 0.0,
+                       morgn_lr_decay_factor: float = 1.0,
+                       morgn_lr_warmdown2_at: float = 0.0,
+                       morgn_lr_decay2_factor: float = 1.0,
                        morgn_step_clamp: float = 0.0,
+                       morgn_analytic_gn: bool = False,
+                       morgn_analytic_gamma: float = 1e-3,
                        clip_grad_norm: float = 0.0) -> tuple[list[float], MatrixFactorizationModel]:
     """Train matrix factorization with specified optimizer."""
     set_seed(seed)
@@ -191,6 +207,16 @@ def train_factorization(target_matrix: torch.Tensor, optimizer_name: str,
             morgn_params=morgn_params,
             lambda_=morgn_lambda,
             eps=morgn_eps,
+            directions=morgn_directions,
+            two_sided=morgn_two_sided,
+            right_lambda=morgn_right_lambda,
+            right_directions=morgn_right_directions,
+            precond_warmup_steps=morgn_precond_warmup_steps,
+            precond_warmup_exp=morgn_precond_warmup_exp,
+            momentum=morgn_momentum,
+            nesterov=morgn_nesterov,
+            analytic_gn=morgn_analytic_gn,
+            analytic_gamma=morgn_analytic_gamma,
             step_clamp=morgn_step_clamp,
             adamw_params=adamw_params,
         )
@@ -208,6 +234,30 @@ def train_factorization(target_matrix: torch.Tensor, optimizer_name: str,
                     old = pg['lr']
                     pg['lr'] = old * muon_lr_decay_factor
                 print(f"[MUON] Warmdown at step {step}: LR scaled by {muon_lr_decay_factor}")
+        # One-time MORGN clamp warmdown
+        if optimizer_name == 'morgn' and morgn_clamp_warmdown_at and morgn_clamp_warmdown_at > 0.0:
+            cstep = int(morgn_clamp_warmdown_at * num_steps)
+            if step == cstep:
+                for pg in optimizer.param_groups:
+                    if 'step_clamp' in pg:
+                        oldc = pg['step_clamp']
+                        pg['step_clamp'] = oldc * morgn_clamp_decay_factor
+                print(f"[MORGN] Clamp warmdown at step {step}: clamp scaled by {morgn_clamp_decay_factor}")
+        # One-time MORGN LR warmdown
+        if optimizer_name == 'morgn' and morgn_lr_warmdown_at and morgn_lr_warmdown_at > 0.0:
+            lstep = int(morgn_lr_warmdown_at * num_steps)
+            if step == lstep:
+                for pg in optimizer.param_groups:
+                    oldlr = pg['lr']
+                    pg['lr'] = oldlr * morgn_lr_decay_factor
+                print(f"[MORGN] Warmdown at step {step}: LR scaled by {morgn_lr_decay_factor}")
+        if optimizer_name == 'morgn' and morgn_lr_warmdown2_at and morgn_lr_warmdown2_at > 0.0:
+            lstep2 = int(morgn_lr_warmdown2_at * num_steps)
+            if step == lstep2:
+                for pg in optimizer.param_groups:
+                    oldlr = pg['lr']
+                    pg['lr'] = oldlr * morgn_lr_decay2_factor
+                print(f"[MORGN] Warmdown2 at step {step}: LR scaled by {morgn_lr_decay2_factor}")
 
         optimizer.zero_grad()
         
@@ -265,7 +315,23 @@ def train_symmetric_factorization(target_matrix: torch.Tensor, optimizer_name: s
                                   muon_lr_decay_factor: float = 0.1,
                                   morgn_lr: float | None = None, morgn_lambda: float = 0.99,
                                   morgn_eps: float = 1e-3,
+                                  morgn_directions: int = 8,
+                                  morgn_two_sided: bool = False,
+                                  morgn_right_lambda: float | None = None,
+                                  morgn_right_directions: int | None = None,
+                                  morgn_precond_warmup_steps: int = 0,
+                                  morgn_precond_warmup_exp: float = 1.0,
+                                  morgn_momentum: float = 0.0,
+                                  morgn_nesterov: bool = False,
+                                  morgn_clamp_warmdown_at: float = 0.0,
+                                  morgn_clamp_decay_factor: float = 1.0,
+                                  morgn_lr_warmdown_at: float = 0.0,
+                                  morgn_lr_decay_factor: float = 1.0,
+                                  morgn_lr_warmdown2_at: float = 0.0,
+                                  morgn_lr_decay2_factor: float = 1.0,
                                   morgn_step_clamp: float = 0.0,
+                                  morgn_analytic_gn: bool = False,
+                                  morgn_analytic_gamma: float = 1e-3,
                                   clip_grad_norm: float = 0.0) -> tuple[list[float], SymmetricFactorizationModel]:
     """Train SPD factorization W such that W W^T ≈ target_matrix."""
     set_seed(seed)
@@ -293,6 +359,16 @@ def train_symmetric_factorization(target_matrix: torch.Tensor, optimizer_name: s
             morgn_params=morgn_params,
             lambda_=morgn_lambda,
             eps=morgn_eps,
+            directions=morgn_directions,
+            two_sided=morgn_two_sided,
+            right_lambda=morgn_right_lambda,
+            right_directions=morgn_right_directions,
+            precond_warmup_steps=morgn_precond_warmup_steps,
+            precond_warmup_exp=morgn_precond_warmup_exp,
+            momentum=morgn_momentum,
+            nesterov=morgn_nesterov,
+            analytic_gn=morgn_analytic_gn,
+            analytic_gamma=morgn_analytic_gamma,
             step_clamp=morgn_step_clamp,
             adamw_params=adamw_params,
         )
@@ -309,6 +385,28 @@ def train_symmetric_factorization(target_matrix: torch.Tensor, optimizer_name: s
                     old = pg['lr']
                     pg['lr'] = old * muon_lr_decay_factor
                 print(f"[MUON] Warmdown at step {step}: LR scaled by {muon_lr_decay_factor}")
+        if optimizer_name == 'morgn' and morgn_clamp_warmdown_at and morgn_clamp_warmdown_at > 0.0:
+            cstep = int(morgn_clamp_warmdown_at * num_steps)
+            if step == cstep:
+                for pg in optimizer.param_groups:
+                    if 'step_clamp' in pg:
+                        oldc = pg['step_clamp']
+                        pg['step_clamp'] = oldc * morgn_clamp_decay_factor
+                print(f"[MORGN] Clamp warmdown at step {step}: clamp scaled by {morgn_clamp_decay_factor}")
+        if optimizer_name == 'morgn' and morgn_lr_warmdown_at and morgn_lr_warmdown_at > 0.0:
+            lstep = int(morgn_lr_warmdown_at * num_steps)
+            if step == lstep:
+                for pg in optimizer.param_groups:
+                    oldlr = pg['lr']
+                    pg['lr'] = oldlr * morgn_lr_decay_factor
+                print(f"[MORGN] Warmdown at step {step}: LR scaled by {morgn_lr_decay_factor}")
+        if optimizer_name == 'morgn' and morgn_lr_warmdown2_at and morgn_lr_warmdown2_at > 0.0:
+            lstep2 = int(morgn_lr_warmdown2_at * num_steps)
+            if step == lstep2:
+                for pg in optimizer.param_groups:
+                    oldlr = pg['lr']
+                    pg['lr'] = oldlr * morgn_lr_decay2_factor
+                print(f"[MORGN] Warmdown2 at step {step}: LR scaled by {morgn_lr_decay2_factor}")
         
         optimizer.zero_grad(set_to_none=True)
         reconstructed = model()  # Call 
@@ -411,6 +509,22 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                                 morgn_lr: float | None = None,
                                 morgn_lambda: float = 0.99,
                                 morgn_eps: float = 1e-3,
+                                morgn_directions: int = 8,
+                                morgn_two_sided: bool = False,
+                                morgn_right_lambda: float | None = None,
+                                morgn_right_directions: int | None = None,
+                                morgn_precond_warmup_steps: int = 0,
+                                morgn_precond_warmup_exp: float = 1.0,
+                                morgn_momentum: float = 0.0,
+                                morgn_nesterov: bool = False,
+                                morgn_clamp_warmdown_at: float = 0.0,
+                                morgn_clamp_decay_factor: float = 1.0,
+                                morgn_lr_warmdown_at: float = 0.0,
+                                morgn_lr_decay_factor: float = 1.0,
+                                morgn_lr_warmdown2_at: float = 0.0,
+                                morgn_lr_decay2_factor: float = 1.0,
+                                morgn_analytic_gn: bool = False,
+                                morgn_analytic_gamma: float = 1e-3,
                                 morgn_step_clamp: float = 0.0,
                                 clip_grad_norm: float = 0.0) -> dict:
     """Compare AdamW, Muon, and MORGN on matrix factorization task."""
@@ -446,6 +560,27 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
         print(f"\nTraining with {optimizer_name.upper()}...")
         
         start_time = time.time()
+        # Helpful summary of MORGN settings
+        if optimizer_name == 'morgn':
+            rl = morgn_right_lambda if morgn_right_lambda is not None else morgn_lambda
+            rd = morgn_right_directions if morgn_right_directions is not None else morgn_directions
+            print("  MORGN settings:")
+            print(f"    lr={morgn_lr if morgn_lr is not None else lr}, lambda={morgn_lambda}, eps={morgn_eps}")
+            print(f"    directions={morgn_directions}, step_clamp={morgn_step_clamp}, two_sided={morgn_two_sided}")
+            if morgn_two_sided:
+                print(f"    right_lambda={rl}, right_directions={rd}")
+            if morgn_precond_warmup_steps > 0:
+                print(f"    precond_warmup_steps={morgn_precond_warmup_steps}, exp={morgn_precond_warmup_exp}")
+            if (morgn_momentum or 0.0) > 0:
+                print(f"    momentum={morgn_momentum}, nesterov={morgn_nesterov}")
+            if morgn_clamp_warmdown_at and morgn_clamp_warmdown_at > 0.0:
+                print(f"    clamp_warmdown_at={morgn_clamp_warmdown_at}, clamp_decay={morgn_clamp_decay_factor}")
+            if morgn_lr_warmdown_at and morgn_lr_warmdown_at > 0.0:
+                print(f"    lr_warmdown_at={morgn_lr_warmdown_at}, lr_decay={morgn_lr_decay_factor}")
+            if morgn_lr_warmdown2_at and morgn_lr_warmdown2_at > 0.0:
+                print(f"    lr_warmdown2_at={morgn_lr_warmdown2_at}, lr_decay2={morgn_lr_decay2_factor}")
+            if morgn_analytic_gn:
+                print(f"    analytic_gn=True, gamma={morgn_analytic_gamma}")
         if symmetric:
             losses, model = train_symmetric_factorization(
                 target_matrix, optimizer_name, num_steps, lr, device, seed,
@@ -453,6 +588,14 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                 muon_lr_warmdown_at=muon_lr_warmdown_at,
                 muon_lr_decay_factor=muon_lr_decay_factor,
                 morgn_lr=morgn_lr, morgn_lambda=morgn_lambda, morgn_eps=morgn_eps,
+                morgn_directions=morgn_directions, morgn_two_sided=morgn_two_sided,
+                morgn_right_lambda=morgn_right_lambda, morgn_right_directions=morgn_right_directions,
+                morgn_precond_warmup_steps=morgn_precond_warmup_steps,
+                morgn_precond_warmup_exp=morgn_precond_warmup_exp,
+                morgn_momentum=morgn_momentum,
+                morgn_nesterov=morgn_nesterov,
+                morgn_clamp_warmdown_at=morgn_clamp_warmdown_at,
+                morgn_clamp_decay_factor=morgn_clamp_decay_factor,
                 morgn_step_clamp=morgn_step_clamp,
                 clip_grad_norm=clip_grad_norm
             )
@@ -465,6 +608,14 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                 muon_lr_warmdown_at=muon_lr_warmdown_at,
                 muon_lr_decay_factor=muon_lr_decay_factor,
                 morgn_lr=morgn_lr, morgn_lambda=morgn_lambda, morgn_eps=morgn_eps,
+                morgn_directions=morgn_directions, morgn_two_sided=morgn_two_sided,
+                morgn_right_lambda=morgn_right_lambda, morgn_right_directions=morgn_right_directions,
+                morgn_precond_warmup_steps=morgn_precond_warmup_steps,
+                morgn_precond_warmup_exp=morgn_precond_warmup_exp,
+                morgn_momentum=morgn_momentum,
+                morgn_nesterov=morgn_nesterov,
+                morgn_clamp_warmdown_at=morgn_clamp_warmdown_at,
+                morgn_clamp_decay_factor=morgn_clamp_decay_factor,
                 morgn_step_clamp=morgn_step_clamp,
                 clip_grad_norm=clip_grad_norm
             )
@@ -618,6 +769,39 @@ def main():
                        help='MORGN initial inverse scale epsilon (P0=(1/eps)I)')
     parser.add_argument('--morgn-step-clamp', type=float, default=0.1,
                        help='Clamp step Frobenius norm to this fraction of ||W|| (default: 0.1)')
+    parser.add_argument('--morgn-directions', type=int, default=8,
+                       help='Number of gradient columns assimilated per step by MORGN (default: 8)')
+    parser.add_argument('--morgn-two-sided', action='store_true',
+                       help='Enable two-sided preconditioning: ΔW = P G Q with right-side RLS update')
+    parser.add_argument('--morgn-right-lambda', type=float, default=None,
+                       help='Right-side forgetting factor (defaults to --morgn-lambda)')
+    parser.add_argument('--morgn-right-directions', type=int, default=None,
+                       help='Right-side number of directions (defaults to --morgn-directions)')
+    parser.add_argument('--morgn-precond-warmup-steps', type=int, default=0,
+                       help='Blend from SGD to preconditioned step over this many steps')
+    parser.add_argument('--morgn-precond-warmup-exp', type=float, default=1.0,
+                       help='Exponent for warmup blend t^exp (1.0=linear)')
+    parser.add_argument('--morgn-momentum', type=float, default=0.0,
+                       help='Gradient momentum coefficient for MORGN (0 disables)')
+    parser.add_argument('--morgn-nesterov', action='store_true',
+                       help='Use Nesterov-style momentum in MORGN')
+    parser.add_argument('--morgn-clamp-warmdown-at', type=float, default=0.0,
+                       help='Fraction of steps when MORGN clamp is decayed (0 disables)')
+    parser.add_argument('--morgn-clamp-decay-factor', type=float, default=1.0,
+                       help='Multiply MORGN clamp by this factor at warmdown time')
+    parser.add_argument('--morgn-lr-warmdown-at', type=float, default=0.0,
+                       help='Fraction of steps when MORGN LR is decayed (0 disables)')
+    parser.add_argument('--morgn-lr-decay-factor', type=float, default=1.0,
+                       help='Multiply MORGN LR by this factor at warmdown time')
+    # Optional second-stage LR warmdown (to mimic Muon plateau break)
+    parser.add_argument('--morgn-lr-warmdown2-at', type=float, default=0.0,
+                       help='Second-stage MORGN LR decay time (fraction of steps, 0 disables)')
+    parser.add_argument('--morgn-lr-decay2-factor', type=float, default=1.0,
+                       help='Multiply LR by this factor at second warmdown time')
+    parser.add_argument('--morgn-analytic-gn', action='store_true',
+                       help='Use analytic two-sided Gauss-Newton preconditioner for SPD tasks')
+    parser.add_argument('--morgn-analytic-gamma', type=float, default=1e-3,
+                       help='Damping gamma for analytic GN preconditioner')
     # Global gradient clipping
     parser.add_argument('--clip-grad-norm', type=float, default=0.0,
                        help='Clip gradient norm to this value (0 disables)')
@@ -678,7 +862,23 @@ def main():
         morgn_lr=args.morgn_lr,
         morgn_lambda=args.morgn_lambda,
         morgn_eps=args.morgn_eps,
+        morgn_directions=args.morgn_directions,
+        morgn_two_sided=args.morgn_two_sided,
+        morgn_right_lambda=args.morgn_right_lambda,
+        morgn_right_directions=args.morgn_right_directions,
+        morgn_precond_warmup_steps=args.morgn_precond_warmup_steps,
+        morgn_precond_warmup_exp=args.morgn_precond_warmup_exp,
+        morgn_momentum=args.morgn_momentum,
+        morgn_nesterov=args.morgn_nesterov,
+        morgn_clamp_warmdown_at=args.morgn_clamp_warmdown_at,
+        morgn_clamp_decay_factor=args.morgn_clamp_decay_factor,
+        morgn_lr_warmdown_at=args.morgn_lr_warmdown_at,
+        morgn_lr_decay_factor=args.morgn_lr_decay_factor,
+        morgn_lr_warmdown2_at=args.morgn_lr_warmdown2_at,
+        morgn_lr_decay2_factor=args.morgn_lr_decay2_factor,
         morgn_step_clamp=args.morgn_step_clamp,
+        morgn_analytic_gn=args.morgn_analytic_gn,
+        morgn_analytic_gamma=args.morgn_analytic_gamma,
         clip_grad_norm=args.clip_grad_norm
     )
     
@@ -694,7 +894,7 @@ def main():
     
     print("\nMatrix factorization experiment complete!")
     print("\nKey insight: This three-way comparison shows how different")
-    print("optimizers perform on matrix factorization problems.")
+    print("optimizers perform on positive-definite matrix factorization.")
 
 if __name__ == "__main__":
     main()

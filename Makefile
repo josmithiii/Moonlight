@@ -184,11 +184,15 @@ rot2 qcfp-sym-rot2: .venv/bin/activate ## SPD factorization (rotated). MORGN two
 		--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
 		--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
 		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
-		--morgn-two-sided --morgn-lr 6e-3 \
-		--morgn-lambda 0.997 --morgn-right-lambda 0.997 \
-		--morgn-eps 1e-2 --morgn-precond-warmup-steps 100 --morgn-precond-warmup-exp 0.7 \
+			--morgn-two-sided --morgn-lr 6e-3 \
+			--morgn-lambda 0.997 --morgn-right-lambda 0.997 \
+		--morgn-eps 1e-2 --morgn-precond-warmup-steps 100 --morgn-precond-warmup-exp 0.6 \
 		--morgn-directions 16 --morgn-right-directions 16 \
-		--morgn-step-clamp 0.5 --clip-grad-norm 1.0 --plot \
+		--morgn-momentum 0.9 --morgn-nesterov \
+		--morgn-step-clamp 0.5 --morgn-clamp-warmdown-at 0.8 --morgn-clamp-decay-factor 0.2 \
+		--morgn-lr-warmdown-at 0.7 --morgn-lr-decay-factor 0.5 \
+		--morgn-lr-warmdown2-at 0.9 --morgn-lr-decay2-factor 0.1 \
+		--clip-grad-norm 1.0 --plot \
 		--out matrix_factorization_sym_random_n512_k5000_s450_morgn2s.png $(ARGS)
 	@open matrix_factorization_sym_random_n512_k5000_s450_morgn2s.png || true
 

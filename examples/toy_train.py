@@ -312,6 +312,15 @@ class MORGN(torch.optim.Optimizer):
         eps: float = 1e-3,
         directions: int = 8,
         step_clamp: float = 0.0,
+        two_sided: bool = False,
+        right_lambda: float | None = None,
+        right_directions: int | None = None,
+        precond_warmup_steps: int = 0,
+        precond_warmup_exp: float = 1.0,
+        momentum: float = 0.0,
+        nesterov: bool = False,
+        analytic_gn: bool = False,
+        analytic_gamma: float = 1e-3,
         adamw_params=None,
         adamw_betas: tuple[float, float] = (0.9, 0.95),
         adamw_eps: float = 1e-8,
@@ -328,6 +337,15 @@ class MORGN(torch.optim.Optimizer):
             eps=eps,
             directions=directions,
             step_clamp=step_clamp,
+            two_sided=two_sided,
+            right_lambda=right_lambda if right_lambda is not None else lambda_,
+            right_directions=right_directions if right_directions is not None else directions,
+            precond_warmup_steps=precond_warmup_steps,
+            precond_warmup_exp=precond_warmup_exp,
+            momentum=momentum,
+            nesterov=nesterov,
+            analytic_gn=analytic_gn,
+            analytic_gamma=analytic_gamma,
             adamw_betas=adamw_betas,
             adamw_eps=adamw_eps,
         )
@@ -342,9 +360,11 @@ class MORGN(torch.optim.Optimizer):
             m, n = p.shape
             if m <= n:
                 left_dim = m
+                right_dim = n
                 self.state[p]["transposed"] = False
             else:
                 left_dim = n
+                right_dim = m
                 self.state[p]["transposed"] = True  # operate on p.T
             device = p.device
             dtype = p.dtype
@@ -352,6 +372,9 @@ class MORGN(torch.optim.Optimizer):
             eps_init = self.defaults["eps"]
             P0 = torch.eye(left_dim, device=device, dtype=dtype) / eps_init
             self.state[p]["P"] = P0
+            if self.defaults.get("two_sided", False):
+                Q0 = torch.eye(right_dim, device=device, dtype=dtype) / eps_init
+                self.state[p]["Q"] = Q0
 
         for p in adamw_params:
             self.state[p]["use_morgn"] = False
@@ -371,6 +394,26 @@ class MORGN(torch.optim.Optimizer):
             step_clamp = float(group.get("step_clamp", 0.0))
             beta1, beta2 = group.get("adamw_betas", (0.9, 0.95))
             eps = group.get("adamw_eps", 1e-8)
+            mu = float(group.get("momentum", 0.0))
+            use_nesterov = bool(group.get("nesterov", False))
+            two_sided = bool(group.get("two_sided", False))
+            right_lambda = float(group.get("right_lambda", lambda_))
+            right_directions = int(group.get("right_directions", directions))
+            warmup_steps = int(group.get("precond_warmup_steps", 0))
+            warmup_exp = float(group.get("precond_warmup_exp", 1.0))
+            analytic_gn = bool(group.get("analytic_gn", False))
+            analytic_gamma = float(group.get("analytic_gamma", 1e-3))
+
+            # Maintain a simple group step counter for warmup scheduling
+            if "_global_step" not in group:
+                group["_global_step"] = 0
+            group["_global_step"] += 1
+            gs = group["_global_step"]
+            if warmup_steps > 0:
+                t = min(1.0, gs / float(warmup_steps))
+                blend = t ** warmup_exp  # 0 -> SGD, 1 -> fully preconditioned
+            else:
+                blend = 1.0
 
             # MORGN updates
             for p in [pp for pp in group["params"] if self.state[pp].get("use_morgn", False)]:
@@ -380,16 +423,65 @@ class MORGN(torch.optim.Optimizer):
 
                 st = self.state[p]
                 P = st["P"]
+                Q = st.get("Q", None)
                 transposed = st["transposed"]
 
                 # Shape to left form (m x k)
-                G = g.T if transposed else g
-                m, k = G.shape
+                # Raw gradient (for curvature updates)
+                G_full_raw = g.T if transposed else g
+                m, k_full = G_full_raw.shape
+                # Momentum-smoothed gradient for the parameter step
+                if mu > 0.0:
+                    if "momentum_buffer" not in st:
+                        st["momentum_buffer"] = torch.zeros_like(g)
+                    buf = st["momentum_buffer"]
+                    buf.mul_(mu).add_(g)
+                    g_eff = g.add(buf, alpha=mu) if use_nesterov else buf
+                else:
+                    g_eff = g
+                G_full_step = g_eff.T if transposed else g_eff
+                G_full = G_full_raw
 
-                # Preconditioned left Newton step
-                # U_left = P @ G, then map back
-                U_left = P @ G
-                update = U_left.T if transposed else U_left # latest gradient times previous inverse Hessian
+                # Optionally select a subset of informative gradient columns
+                # (top- |directions| columns by energy). This reduces update cost
+                # and improves numerical conditioning of the small solve.
+                if directions is not None and directions > 0 and directions < k_full:
+                    # Select by energy using raw gradient
+                    col_energy = (G_full.square()).sum(dim=0)
+                    idx = torch.topk(col_energy, directions, largest=True).indices
+                    G = G_full.index_select(dim=1, index=idx)
+                else:
+                    G = G_full
+                k = G.shape[1]
+
+                # Preconditioned step
+                if analytic_gn:
+                    # Compute analytic two-sided Gauss-Newton preconditioner from current W
+                    Wmat = p.T if transposed else p
+                    mW, nW = Wmat.shape
+                    I_m = torch.eye(mW, device=Wmat.device, dtype=Wmat.dtype)
+                    I_n = torch.eye(nW, device=Wmat.device, dtype=Wmat.dtype)
+                    # Promote precision for MPS/FP16 cases
+                    W32 = Wmat.float()
+                    Gs32 = G_full_step.float()
+                    A = W32 @ W32.T + analytic_gamma * torch.eye(mW, device=W32.device, dtype=W32.dtype)
+                    B = W32.T @ W32 + analytic_gamma * torch.eye(nW, device=W32.device, dtype=W32.dtype)
+                    # Solve A X = Gs32 and then X B^{-1}
+                    # First left solve: A^{-1} * G
+                    U_left32 = torch.linalg.solve(A, Gs32)
+                    # Then right solve: (A^{-1} G) * B^{-1}
+                    U_step32 = torch.linalg.solve(B.T, U_left32.T).T  # solve X B^T = U_left^T
+                    U_step = U_step32.to(p.dtype)
+                else:
+                    # RLS-based P/Q
+                    U_left = P @ G
+                    U_step = P @ G_full_step
+                    if two_sided and Q is not None:
+                        U_step = U_step @ Q
+                # Blend with raw gradient to behave like SGD early on
+                precond_update = U_step.T if transposed else U_step
+                raw_update = G_full_step.T if transposed else G_full_step
+                update = (1.0 - blend) * raw_update + blend * precond_update
 
                 # Weight decay like AdamW
                 if wd != 0.0:
@@ -406,53 +498,102 @@ class MORGN(torch.optim.Optimizer):
 
                 p.data.add_(update, alpha=-lr)
 
-                # Update P using Sherman-Morrison formula for all gradient columns
+                # Update curvature via RLS (skip if using analytic GN)
                 # For each column v in G, we update H_inv where H gets rank-1 update v*v^T
                 # Sherman-Morrison: (H + v*v^T)^{-1} = H^{-1} - (H^{-1}*v*v^T*H^{-1}) / (1 + v^T*H^{-1}*v)
-                with torch.no_grad():
-                    # Vectorized Woodbury update across all k columns using precomputed U_left = P @ G
-                    gn_mat = U_left  # shape (m, k)
-                    # Compute S = I_k + G^T @ (P @ G) and update without explicit inverse for stability
-                    if gn_mat.dtype in (torch.float16, torch.bfloat16):
-                        gn32 = gn_mat.float()
-                        G32 = G.float()
-                        I_k = torch.eye(k, device=gn32.device, dtype=gn32.dtype)
-                        S = I_k + G32.T @ gn32
-                        S = S + (1e-12 * I_k)
-                        if S.device.type == 'mps':
-                            # Try explicit inverse on MPS; fall back to CPU solve if unsupported
-                            try:
-                                S_inv = torch.linalg.inv(S)
-                                X = S_inv @ gn32.T  # (k, m)
-                            except Exception:
-                                X_cpu = torch.linalg.solve(S.cpu(), gn32.T.cpu())
-                                X = X_cpu.to(gn32.device)
+                if not analytic_gn:
+                    with torch.no_grad():
+                        # Vectorized Woodbury update across all k columns using precomputed U_left = P @ G
+                        gn_mat = U_left  # shape (m, k)
+                        # Compute S = (lambda * I_k + G^T @ (P @ G)) with small ridge for stability
+                        if gn_mat.dtype in (torch.float16, torch.bfloat16):
+                            gn32 = gn_mat.float()
+                            G32 = G.float()
+                            I_k = torch.eye(k, device=gn32.device, dtype=gn32.dtype)
+                            S = (lambda_ * I_k) + (G32.T @ gn32)
+                            # Numerical ridge (acts as Gauss–Newton damping)
+                            S = S + (1e-10 * I_k)
+                            if S.device.type == 'mps':
+                                # Try explicit inverse on MPS; fall back to CPU solve if unsupported
+                                try:
+                                    S_inv = torch.linalg.inv(S)
+                                    X = S_inv @ gn32.T  # (k, m)
+                                except Exception:
+                                    X_cpu = torch.linalg.solve(S.cpu(), gn32.T.cpu())
+                                    X = X_cpu.to(gn32.device)
+                            else:
+                                X = torch.linalg.solve(S, gn32.T)  # (k, m)
+                            delta = (gn32 @ X).to(gn_mat.dtype)
                         else:
-                            X = torch.linalg.solve(S, gn32.T)  # (k, m)
-                        delta = (gn32 @ X).to(gn_mat.dtype)
-                    else:
-                        I_k = torch.eye(k, device=gn_mat.device, dtype=gn_mat.dtype)
-                        S = I_k + G.T @ gn_mat
-                        S = S + (gn_mat.new_tensor(1e-12) * I_k)
-                        if S.device.type == 'mps':
-                            # Try explicit inverse on MPS; fall back to CPU solve if unsupported
-                            try:
-                                S_inv = torch.linalg.inv(S)
-                                X = S_inv @ gn_mat.T  # (k, m)
-                            except Exception:
-                                X_cpu = torch.linalg.solve(S.cpu(), gn_mat.T.cpu())
-                                X = X_cpu.to(gn_mat.device)
-                        else:
-                            X = torch.linalg.solve(S, gn_mat.T)  # (k, m)
-                        delta = gn_mat @ X
-                    P.sub_(delta)
-                    
-                    # Apply forgetting factor (exponential decay of old information)
-                    P.mul_(1.0 / lambda_)
-                    
-                    # Keep symmetry (P should be symmetric)
-                    P.copy_(0.5 * (P + P.T))
-                    st["P"] = P
+                            I_k = torch.eye(k, device=gn_mat.device, dtype=gn_mat.dtype)
+                            S = (lambda_ * I_k) + (G.T @ gn_mat)
+                            S = S + (gn_mat.new_tensor(1e-10) * I_k)
+                            if S.device.type == 'mps':
+                                # Try explicit inverse on MPS; fall back to CPU solve if unsupported
+                                try:
+                                    S_inv = torch.linalg.inv(S)
+                                    X = S_inv @ gn_mat.T  # (k, m)
+                                except Exception:
+                                    X_cpu = torch.linalg.solve(S.cpu(), gn_mat.T.cpu())
+                                    X = X_cpu.to(gn_mat.device)
+                            else:
+                                X = torch.linalg.solve(S, gn_mat.T)  # (k, m)
+                            delta = gn_mat @ X
+                        # Full forgetful RLS update: P <- (1/lambda) * (P - P G S^{-1} G^T P)
+                        P.sub_(delta)
+                        P.mul_(1.0 / lambda_)
+                        
+                        # Keep symmetry (P should be symmetric)
+                        P.copy_(0.5 * (P + P.T))
+                        st["P"] = P
+
+                        # Optional right-side update for two-sided preconditioning
+                        if two_sided and Q is not None:
+                            G_right_full = G_full.T  # (n, m)
+                            n, m_right = G_right_full.shape
+                            if right_directions is not None and right_directions > 0 and right_directions < m_right:
+                                row_energy = (G_full.square()).sum(dim=1)
+                                idx_r = torch.topk(row_energy, right_directions, largest=True).indices
+                                Gr = G_right_full.index_select(dim=1, index=idx_r)
+                            else:
+                                Gr = G_right_full
+                            kr = Gr.shape[1]
+
+                            gn_r = Q @ Gr
+                            if gn_r.dtype in (torch.float16, torch.bfloat16):
+                                gn32 = gn_r.float()
+                                Gr32 = Gr.float()
+                                I_r = torch.eye(kr, device=gn32.device, dtype=gn32.dtype)
+                                S_r = (right_lambda * I_r) + (Gr32.T @ gn32)
+                                S_r = S_r + (1e-10 * I_r)
+                                if S_r.device.type == 'mps':
+                                    try:
+                                        S_inv_r = torch.linalg.inv(S_r)
+                                        Xr = S_inv_r @ gn32.T
+                                    except Exception:
+                                        Xr_cpu = torch.linalg.solve(S_r.cpu(), gn32.T.cpu())
+                                        Xr = Xr_cpu.to(gn32.device)
+                                else:
+                                    Xr = torch.linalg.solve(S_r, gn32.T)
+                                deltaQ = (gn32 @ Xr).to(gn_r.dtype)
+                            else:
+                                I_r = torch.eye(kr, device=gn_r.device, dtype=gn_r.dtype)
+                                S_r = (right_lambda * I_r) + (Gr.T @ gn_r)
+                                S_r = S_r + (gn_r.new_tensor(1e-10) * I_r)
+                                if S_r.device.type == 'mps':
+                                    try:
+                                        S_inv_r = torch.linalg.inv(S_r)
+                                        Xr = S_inv_r @ gn_r.T
+                                    except Exception:
+                                        Xr_cpu = torch.linalg.solve(S_r.cpu(), gn_r.T.cpu())
+                                        Xr = Xr_cpu.to(gn_r.device)
+                                else:
+                                    Xr = torch.linalg.solve(S_r, gn_r.T)
+                                deltaQ = gn_r @ Xr
+                            Q.sub_(deltaQ)
+                            Q.mul_(1.0 / right_lambda)
+                            Q.copy_(0.5 * (Q + Q.T))
+                            st["Q"] = Q
 
             # AdamW fallback for non-2D or excluded params
             for p in [pp for pp in group["params"] if not self.state[pp].get("use_morgn", False)]:

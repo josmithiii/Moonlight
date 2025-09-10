@@ -615,7 +615,7 @@ def main():
         else:
             mode = 'sym' if args.symmetric else 'rect'
             evec = args.evec_mode
-            out_path = f"matrix_factorization_{mode}_{evec}_n{args.matrix_size}_k{int(args.condition_number)}_s{args.steps}.png"
+            out_path = f"{mode}_{evec}_matrix_factorization_n{args.matrix_size}_k{int(args.condition_number)}_s{args.steps}.png"
         plot_matrix_factorization_comparison(results, save_path=out_path)
     
     print("\nMatrix factorization experiment complete!")

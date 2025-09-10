@@ -32,6 +32,36 @@
             "justMyCode": false,
             "python": "${workspaceFolder}/.venv/bin/python",
             "args": ["--model", "qwen", "--optimizer", "muon", "--dataset", "openwebtext-100k", "--hidden_size", "896", "--lr", "1e-3"]
+        },
+        {
+            "name": "Python: QCFP-Sym-Rot (uv)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/matrix_factorization_compare.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false,
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "args": [
+                "--symmetric",
+                "--evec-mode", "random",
+                "--matrix-size", "512",
+                "--condition-number", "5000",
+                "--steps", "500",
+                "--lr", "1e-2",
+                "--muon-lr", "3e-3",
+                "--muon-ns-steps", "8",
+                "--muon-lr-warmdown-at", "0.7",
+                "--muon-lr-decay-factor", "0.1",
+                "--morgn-lr", "7e-1",
+                "--morgn-lambda", "0.997",
+                "--morgn-eps", "1e-2",
+                "--morgn-directions", "6",
+                "--morgn-step-clamp", "0.2",
+                "--clip-grad-norm", "1.0",
+                "--plot",
+                "--out", "sym_random_matrix_factorization_n512_k5000_s450_debug.png"
+            ]
         }
     ]
 }

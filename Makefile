@@ -37,6 +37,7 @@ h help:
 	@echo "  quick-compare-factorization - Compare on matrix factorization problem"
 	@echo "  qcfp-sym-id   - SPD factorization with identity eigenvectors (AdamW favored)"
 	@echo "  qcfp-sym-rot  - SPD factorization with rotated eigenvectors (Muon favored)"
+	@echo "  qcfp-sym-rot2 - SPD factorization (rotated) with MORGN two-sided preconditioner"
 	@echo "  simple-demo    - Simple three-way demo on toy problem"
 	@echo "  test-sizes     - Test different model sizes (512, 896, 1024)"
 	@echo ""
@@ -163,8 +164,8 @@ id qcfp-sym-id: .venv/bin/activate ## SPD factorization with identity eigenvecto
 		--steps 300 --lr 1e-2 \
 		--muon-lr 3e-3 --muon-ns-steps 8 \
 		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
-		--morgn-lr 0.01 --morgn-lambda 0.999 --morgn-eps 1e-4 --morgn-step-clamp 1.0 \
-		--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png
+		--morgn-lr 0.01 --morgn-lambda 0.999 --morgn-eps 1e-4 --morgn-step-clamp 1.0 --morgn-directions 8 \
+		--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png $(ARGS)
 	@open matrix_factorization_sym_id_n512_k5000_s300.png || true
 
 rot qcfp-sym-rot: .venv/bin/activate ## SPD factorization with random eigenvectors (rotated). Muon should excel.
@@ -173,9 +174,23 @@ rot qcfp-sym-rot: .venv/bin/activate ## SPD factorization with random eigenvecto
 		--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
 		--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
 		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
-		--morgn-lr 1 --morgn-lambda 0.9999 --morgn-eps 1e-3 --morgn-step-clamp 1000.0 \
-		--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s450.png
+		--morgn-lr 1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-step-clamp 0.2 --morgn-directions 8 \
+		--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s450.png $(ARGS)
 	@open matrix_factorization_sym_random_n512_k5000_s450.png || true
+
+rot2 qcfp-sym-rot2: .venv/bin/activate ## SPD factorization (rotated). MORGN two-sided preconditioner enabled.
+	@echo "Running SPD factorization with rotated eigenvectors (MORGN two-sided)..."
+	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
+		--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
+		--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
+		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
+		--morgn-two-sided --morgn-lr 6e-3 \
+		--morgn-lambda 0.997 --morgn-right-lambda 0.997 \
+		--morgn-eps 1e-2 --morgn-precond-warmup-steps 100 --morgn-precond-warmup-exp 0.7 \
+		--morgn-directions 16 --morgn-right-directions 16 \
+		--morgn-step-clamp 0.5 --clip-grad-norm 1.0 --plot \
+		--out matrix_factorization_sym_random_n512_k5000_s450_morgn2s.png $(ARGS)
+	@open matrix_factorization_sym_random_n512_k5000_s450_morgn2s.png || true
 
 rp rotated-paraboloid: .venv/bin/activate ## Run optimizer comparison on rotated paraboloid with correlated gradients
 	@echo "Running optimizer comparison on rotated paraboloid problem..."

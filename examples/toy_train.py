@@ -340,7 +340,7 @@ class MORGN(torch.optim.Optimizer):
             assert p.ndim == 2, p.ndim
             self.state[p]["use_morgn"] = True
             m, n = p.shape
-            if m < n:
+            if m <= n:
                 left_dim = m
                 self.state[p]["transposed"] = False
             else:
@@ -406,23 +406,22 @@ class MORGN(torch.optim.Optimizer):
 
                 p.data.add_(update, alpha=-lr)
 
-                # Update P using sequential rank-1 RLS with selected columns
-                # Pick `directions` columns with largest norms
+                # Update P using Sherman-Morrison formula for all gradient columns
+                # For each column v in G, we update H_inv where H gets rank-1 update v*v^T
+                # Sherman-Morrison: (H + v*v^T)^{-1} = H^{-1} - (H^{-1}*v*v^T*H^{-1}) / (1 + v^T*H^{-1}*v)
                 with torch.no_grad():
-                    if k <= directions:
-                        idx = range(k)
-                    else:
-                        norms = torch.norm(G, dim=0)
-                        _, topk = torch.topk(norms, directions, largest=True)
-                        idx = topk.tolist()
-                    for j in idx:
+                    for j in range(k):
                         v = G[:, j]
                         Pv = P @ v
-                        denom = lambda_ + torch.dot(v, Pv) + 1e-12
-                        # P = (1/lambda_) * (P - (Pv Pv^T) / denom)
-                        P.sub_(torch.outer(Pv, Pv) / denom)
-                        P.mul_(1.0 / max(lambda_, 1e-6))
-                    # Keep symmetry
+                        denom = 1.0 + torch.dot(v, Pv)
+                        if abs(denom) > 1e-12:  # Avoid division by zero
+                            # Sherman-Morrison update: P = P - (Pv * Pv^T) / denom
+                            P.sub_(torch.outer(Pv, Pv) / denom)
+                    
+                    # Apply forgetting factor (exponential decay of old information)
+                    P.mul_(1.0 / lambda_)
+                    
+                    # Keep symmetry (P should be symmetric)
                     P.copy_(0.5 * (P + P.T))
                     st["P"] = P
 

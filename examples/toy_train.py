@@ -347,7 +347,7 @@ class MORGN(torch.optim.Optimizer):
                 left_dim = n
                 self.state[p]["transposed"] = True  # operate on p.T
             device = p.device
-            dtype = torch.float32 if p.dtype == torch.float32 else torch.float32
+            dtype = p.dtype
             # P0 = (1/eps) * I (large to allow quick adaptation)
             eps_init = self.defaults["eps"]
             P0 = torch.eye(left_dim, device=device, dtype=dtype) / eps_init
@@ -389,7 +389,7 @@ class MORGN(torch.optim.Optimizer):
                 # Preconditioned left Newton step
                 # U_left = P @ G, then map back
                 U_left = P @ G
-                update = U_left.T if transposed else U_left
+                update = U_left.T if transposed else U_left # latest gradient times previous inverse Hessian
 
                 # Weight decay like AdamW
                 if wd != 0.0:
@@ -410,13 +410,42 @@ class MORGN(torch.optim.Optimizer):
                 # For each column v in G, we update H_inv where H gets rank-1 update v*v^T
                 # Sherman-Morrison: (H + v*v^T)^{-1} = H^{-1} - (H^{-1}*v*v^T*H^{-1}) / (1 + v^T*H^{-1}*v)
                 with torch.no_grad():
-                    for j in range(k):
-                        v = G[:, j]
-                        Pv = P @ v
-                        denom = 1.0 + torch.dot(v, Pv)
-                        if abs(denom) > 1e-12:  # Avoid division by zero
-                            # Sherman-Morrison update: P = P - (Pv * Pv^T) / denom
-                            P.sub_(torch.outer(Pv, Pv) / denom)
+                    # Vectorized Woodbury update across all k columns using precomputed U_left = P @ G
+                    gn_mat = U_left  # shape (m, k)
+                    # Compute S = I_k + G^T @ (P @ G) and update without explicit inverse for stability
+                    if gn_mat.dtype in (torch.float16, torch.bfloat16):
+                        gn32 = gn_mat.float()
+                        G32 = G.float()
+                        I_k = torch.eye(k, device=gn32.device, dtype=gn32.dtype)
+                        S = I_k + G32.T @ gn32
+                        S = S + (1e-12 * I_k)
+                        if S.device.type == 'mps':
+                            # Try explicit inverse on MPS; fall back to CPU solve if unsupported
+                            try:
+                                S_inv = torch.linalg.inv(S)
+                                X = S_inv @ gn32.T  # (k, m)
+                            except Exception:
+                                X_cpu = torch.linalg.solve(S.cpu(), gn32.T.cpu())
+                                X = X_cpu.to(gn32.device)
+                        else:
+                            X = torch.linalg.solve(S, gn32.T)  # (k, m)
+                        delta = (gn32 @ X).to(gn_mat.dtype)
+                    else:
+                        I_k = torch.eye(k, device=gn_mat.device, dtype=gn_mat.dtype)
+                        S = I_k + G.T @ gn_mat
+                        S = S + (gn_mat.new_tensor(1e-12) * I_k)
+                        if S.device.type == 'mps':
+                            # Try explicit inverse on MPS; fall back to CPU solve if unsupported
+                            try:
+                                S_inv = torch.linalg.inv(S)
+                                X = S_inv @ gn_mat.T  # (k, m)
+                            except Exception:
+                                X_cpu = torch.linalg.solve(S.cpu(), gn_mat.T.cpu())
+                                X = X_cpu.to(gn_mat.device)
+                        else:
+                            X = torch.linalg.solve(S, gn_mat.T)  # (k, m)
+                        delta = gn_mat @ X
+                    P.sub_(delta)
                     
                     # Apply forgetting factor (exponential decay of old information)
                     P.mul_(1.0 / lambda_)

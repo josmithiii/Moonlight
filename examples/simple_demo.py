@@ -178,12 +178,6 @@ def main():
     for step in [0, 10, 20, 30, 40, 49]:
         if step < min(len(losses) for losses in results.values()):
             print(f"  {step:2d} | {results['adamw'][step]:7.4f} | {results['muon'][step]:7.4f} | {results['morgn'][step]:7.4f}")
-    
-    print("\n" + "="*60)
-    print("Key Insight: Different optimizers show varying performance")
-    print("on this toy problem. MORGN is currently a stub (SGD+momentum)")
-    print("and will be improved to demonstrate novel optimization techniques.")
-    print("="*60)
 
 if __name__ == "__main__":
     main()

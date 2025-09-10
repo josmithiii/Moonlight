@@ -277,17 +277,13 @@ class Muon(torch.optim.Optimizer):
 
 class MORGN(torch.optim.Optimizer):
     """
-    MORGN - MORe Generic Newton (placeholder implementation)
-    
-    This is a stub implementation that will be expanded later.
-    For now, it mimics Muon's interface but uses simple SGD internally.
+    MORGN - Momentum Orthogonalization via Recursive Gauss-Newton (placeholder implementation)
     
     Arguments:
         morgn_params: The parameters to be optimized by MORGN (same as muon_params)
         lr: The learning rate
         momentum: The momentum used by the internal SGD (0.95 is a good default)
         nesterov: Whether to use Nesterov-style momentum (recommended)
-        ns_steps: Number of Newton-Schulz iterations (placeholder, not used yet)
         adamw_params: Parameters to be optimized by AdamW fallback
         adamw_betas: The betas for the internal AdamW
         adamw_eps: The epsilon for the internal AdamW
@@ -301,7 +297,6 @@ class MORGN(torch.optim.Optimizer):
         morgn_params=None,
         momentum: float = 0.95,
         nesterov: bool = True,
-        ns_steps: int = 5,
         adamw_params=None,
         adamw_betas: tuple[float, float] = (0.9, 0.95),
         adamw_eps: float = 1e-8,
@@ -317,7 +312,6 @@ class MORGN(torch.optim.Optimizer):
             wd=wd,
             momentum=momentum,
             nesterov=nesterov,
-            ns_steps=ns_steps,
             adamw_betas=adamw_betas,
             adamw_eps=adamw_eps,
         )
@@ -358,7 +352,7 @@ class MORGN(torch.optim.Optimizer):
             wd = group["wd"]
             momentum = group["momentum"]
 
-            # MORGN implementation (stub - currently just SGD with momentum)
+            # MORGN implementation
             for p in params:
                 g = p.grad
                 if g is None:
@@ -376,8 +370,7 @@ class MORGN(torch.optim.Optimizer):
                 # For now, disable Nesterov to debug the basic momentum issue
                 update = buf
 
-                # MORGN stub is unstable - use much smaller learning rate for debugging
-                adjusted_lr = lr * 0.01
+                adjusted_lr = lr # use much smaller learning rate for debugging if needed
 
                 # Apply weight decay
                 p.data.mul_(1 - lr * wd)

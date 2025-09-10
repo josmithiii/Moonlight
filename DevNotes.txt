@@ -2272,4 +2272,94 @@ c<jos@josmp25:/l/mo> codex
   - Add a third Makefile target (qcfp-sym-rot-morgn-fast) tuned to push MORGN without spikes.
 
 ------------------------------------------------------------------------------------------------------------------------
+9/10/25 Codex Medium
+
+> Here’s a concise “detailed commit” you can use, plus next steps and new toy-problem ideas.
+
+  Commit message (copy/paste)
+
+  -
+  Title: MORGN: correct forgetful RLS, add directions, two‑sided preconditioner, warmup; Makefile ARGS+rot2; run‑time summary
+  -
+  Why:
+      - MORGN slowed late and underperformed despite “Newton” intent. Root causes were (a) incomplete forgetting math, (b) no use of the directions knob, and (c) left‑only
+  preconditioning. This patch fixes the RLS update, lets us pick informative directions, adds optional two‑sided preconditioning, and introduces a safe preconditioner warmup
+  (SGD→Newton) to stabilize early steps.
+  -
+  What:
+      - Correct forgetful Woodbury update (RLS) with damping
+      - P <- (1/λ)·(P − P G (λ I + G^T P G)^−1 G^T P), with small ridge.
+  - Directions: assimilate top‑k gradient columns by energy (stabilizes S solve).
+  - Two‑sided option: ΔW = P G Q with separate right‑side RLS on rows (G^T); flags for right_lambda/right_directions.
+  - Preconditioner warmup: blend raw gradient + preconditioned step over N steps (linear or exp). Flags: --morgn-precond-warmup-steps, --morgn-precond-warmup-exp.
+  - Step clamp remains a trust region on ||ΔW||_F relative to ||W||_F.
+  - CLI and plumbing
+      - New flags in examples/matrix_factorization_compare.py:
+        - --morgn-directions, --morgn-two-sided, --morgn-right-lambda, --morgn-right-directions
+        - --morgn-precond-warmup-steps, --morgn-precond-warmup-exp
+      - MORGN settings summary printed at run start for traceability.
+  - Makefile
+      - Add ARGS passthrough to SPD targets.
+      - Add rot2 (two‑sided MORGN showcase) with reasonable defaults.
+  - Safety and numerical hygiene
+      - Keep P and Q symmetric each step.
+      - Ridge in small systems solves; MPS-compatible solve/inv fallbacks.
+
+  - Files:
+      - examples/toy_train.py (MORGN fixes/features).
+      - examples/matrix_factorization_compare.py (CLI flags, threading, printing).
+      - Makefile (ARGS passthrough, rot2 target).
+      - Makefile (ARGS passthrough, rot2 target).
+  -
+  Results (your recent runs):
+      - One‑sided + corrected RLS + directions: final MSE ~ 4.6e-5 (down from ~2e-3 before the fix).
+      - Two‑sided + tuned λ/dirs + clamp: final MSE ~ 1e-6; strong late‑phase speed; early phase improved via warmup once eps was set small (1e-2).
+      - Remaining gap: ADAMW and Muon still win on this SPD benchmark; MORGN does not yet show quadratic “snap” throughout.
+  -
+  Usage examples:
+      - Two‑sided with warmup and stronger P0:
+      - make rot2 ARGS="--morgn-eps 1e-2 --morgn-precond-warmup-steps 120 --morgn-precond-warmup-exp 0.7 --morgn-lr 6e-3 --morgn-lambda 0.997 --morgn-right-lambda 0.997 --morgn-
+  directions 16 --morgn-right-directions 16 --morgn-step-clamp 0.5"
+  - One‑sided quick baseline:
+      - make rot ARGS="--morgn-lr 5e-3 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-directions 8 --morgn-step-clamp 0.2"
+
+  - Next work (tracked below) will target earlier acceleration and further stability.
+
+  Suggested next steps
+
+  - Small code additions
+      - Clamp warmdown: reduce step_clamp by ×0.3 at 70–80% of steps to remove late spikes. Flag: --morgn-clamp-warmdown-at, --morgn-clamp-decay.
+      - Optional LR decay for MORGN only (mirroring Muon warmdown).
+      - Instrumentation: log cond(P), cond(Q), and ||P G||/||G|| to see when curvature is “on”.
+      - Instrumentation: log cond(P), cond(Q), and ||P G||/||G|| to see when curvature is “on”.
+  -
+  Algorithmic knobs worth sweeping (quick grid):
+      - eps ∈ {1e-2, 5e-3, 1e-3}
+      - λ, right_λ ∈ {0.995, 0.997, 0.999}
+      - directions ∈ {8, 16, 24}
+      - warmup_steps ∈ {60, 120}, warmup_exp ∈ {0.7, 1.0}
+      - step_clamp ∈ {0.3, 0.5}
+  -
+  Optional “analytic GN” mode for SPD
+      - For W W^T ≈ T, compute P = (W W^T + γI)^−1, Q = (W^T W + γI)^−1 directly each step (Cholesky+solve), then ΔW = P G Q.
+      - Flag: --morgn-analytic-gn; retains RLS as default.
+      - This should show the “must be the best” behavior on SPD and serve as an upper bound for RLS quality.
+
+  New toy problems to better showcase Newton advantages
+
+  - Deep linear least squares (2-layer linear net):
+      - Minimize ||X W1 W2 − Y||^2 with rotated X; GN is Kronecker-factored; two‑sided MORGN should approximate KFAC and shine.
+  - Rotated logistic regression (GLM) with correlated features:
+      - Newton is near‑optimal; compare against AdamW/Muon; test forgetting on streaming batches.
+  - Asymmetric matrix factorization (A B^T ≈ T):
+      - Two‑sided preconditioning directly relevant; avoids the special symmetry of W W^T.
+  - Nonlinear least squares on a small MLP (Gauss‑Newton friendly):
+      - Fit a synthetic map with strong curvature; evaluate step quality via loss vs. gradient norm decrease.
+
+  If you want, I can:
+
+  - Add clamp warmdown and MORGN LR warmdown flags now.
+  - Scaffold “analytic GN” mode for SPD to establish an ideal baseline.
+  - Implement the deep linear regression toy (XW1W2) as a new example with a compare target.
+------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------

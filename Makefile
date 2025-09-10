@@ -3,8 +3,8 @@
 
 SHELL := /bin/bash
 PYTHON := /usr/bin/python3
-# Use virtual env if it exists, otherwise use system python directly
-VENV_ACTIVATE := test -f .venv/bin/activate && source .venv/bin/activate ||
+# Virtual environment activation
+VENV_ACTIVATE := source .venv/bin/activate &&
 TRAIN_SCRIPT := examples/toy_train.py
 
 # Default parameters
@@ -73,8 +73,13 @@ setup:
 $(LOGS_DIR):
 	mkdir -p $(LOGS_DIR)
 
+# Virtual environment setup
+.venv/bin/activate:
+	@echo "Setting up virtual environment..."
+	./setup.sh
+
 # Documented examples from CLAUDE.md and README.md
-train-muon: $(LOGS_DIR)
+train-muon: $(LOGS_DIR) .venv/bin/activate
 	@echo "Training with Muon optimizer (documented example)..."
 	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
 		--model $(MODEL) \
@@ -86,7 +91,7 @@ train-muon: $(LOGS_DIR)
 	@echo "Training complete! Saving results..."
 	@git add -f logs/ && git commit -m "Muon training results - $(MODEL) h$(HIDDEN_SIZE) lr$(LR) - $$(date)" && git push || echo "Failed to save results to git"
 
-train-adamw: $(LOGS_DIR)
+train-adamw: $(LOGS_DIR) .venv/bin/activate
 	@echo "Training with AdamW optimizer (documented example)..."
 	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
 		--model $(MODEL) \
@@ -114,7 +119,7 @@ train-both: install-deps train-muon train-adamw
 all: install-deps train-both
 
 # Comparison experiments
-co compare-optimizers: $(LOGS_DIR)
+co compare-optimizers: $(LOGS_DIR) .venv/bin/activate
 	@echo "Comparing AdamW vs Muon vs MORGN with identical configurations..."
 	@echo "Training with AdamW..."
 	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
@@ -130,26 +135,18 @@ co compare-optimizers: $(LOGS_DIR)
 		--hidden_size $(HIDDEN_SIZE) --lr $(LR) --wd $(WD)
 	@echo "Check $(LOGS_DIR)/ for training logs to compare performance"
 
-qc quick-compare: ## Run quick efficiency comparison between AdamW, Muon, and MORGN
+qc quick-compare: .venv/bin/activate ## Run quick efficiency comparison between AdamW, Muon, and MORGN
 	@echo "Running quick AdamW vs Muon vs MORGN comparison..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 examples/quick_compare.py --steps 100 --hidden-size 128; \
-	else \
-		python3 examples/quick_compare.py --steps 100 --hidden-size 128; \
-	fi
+	source .venv/bin/activate && python3 examples/quick_compare.py --steps 100 --hidden-size 128
 
-qcp quick-compare-plot: ## Run quick comparison with convergence plot
+qcp quick-compare-plot: .venv/bin/activate ## Run quick comparison with convergence plot
 	@echo "Running quick comparison with plot generation..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 examples/quick_compare.py --steps 200 --hidden-size 256 --plot; \
-	else \
-		python3 examples/quick_compare.py --steps 200 --hidden-size 256 --plot; \
-	fi
+	source .venv/bin/activate && python3 examples/quick_compare.py --steps 200 --hidden-size 256 --plot
 
 # Even smaller: python3 examples/quick_compare.py --steps 50 --hidden-size 128 --device mps --plot
 # Force CPU: CUDA_VISIBLE_DEVICES="" python3 examples/quick_compare.py --steps 10 --hidden-size 64 --device cpu
 
-qcfp quick-compare-factorization: ## Run quick comparison on matrix factorization problem, default condition number 1000, 896x896 matrix
+qcfp quick-compare-factorization: .venv/bin/activate ## Run quick comparison on matrix factorization problem, default condition number 1000, 896x896 matrix
 	@echo "Running Optimizer Comparisons on matrix factorization..."
 	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py --matrix-size $(HIDDEN_SIZE) --condition-number 1000.0 --steps 200 --plot; \
 	open matrix_factorization_comparison.png
@@ -159,61 +156,38 @@ qcfp1000: ## Run quick comparison on matrix factorization problem with condition
 	python3 examples/matrix_factorization_compare.py 
 
 # SPD factorization showcase targets
-qcfp-sym-id: ## SPD factorization with identity eigenvectors (coordinate-aligned). AdamW should excel.
+qcfp-sym-id: .venv/bin/activate ## SPD factorization with identity eigenvectors (coordinate-aligned). AdamW should excel.
 	@echo "Running SPD factorization with identity eigenvectors (AdamW favored)..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
-			--symmetric --evec-mode identity --matrix-size 512 --condition-number 5000 \
-			--steps 300 --lr 1e-2 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png; \
-	else \
-		python3 examples/matrix_factorization_compare.py \
-			--symmetric --evec-mode identity --matrix-size 512 --condition-number 5000 \
-			--steps 300 --lr 1e-2 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png; \
-	fi
+	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
+		--symmetric --evec-mode identity --matrix-size 512 --condition-number 5000 \
+		--steps 300 --lr 1e-2 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png
 	@open matrix_factorization_sym_id_n512_k5000_s300.png || true
 
-qcfp-sym-rot: ## SPD factorization with random eigenvectors (rotated). Muon should excel.
+qcfp-sym-rot: .venv/bin/activate ## SPD factorization with random eigenvectors (rotated). Muon should excel.
 	@echo "Running SPD factorization with rotated eigenvectors (Muon favored)..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
-			--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
-			--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
-			--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
-			--morgn-lr 7e-1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-directions 6 --morgn-step-clamp 0.2 \
-			--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s450.png; \
-	else \
-		python3 examples/matrix_factorization_compare.py \
-			--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
-			--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
-			--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
-			--morgn-lr 7e-1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-directions 6 --morgn-step-clamp 0.2 \
-			--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s450.png; \
-	fi
+	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
+		--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
+		--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
+		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
+		--morgn-lr 7e-1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-directions 6 --morgn-step-clamp 0.2 \
+		--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s450.png
 	@open matrix_factorization_sym_random_n512_k5000_s450.png || true
 
-rp rotated-paraboloid: ## Run optimizer comparison on rotated paraboloid with correlated gradients
+rp rotated-paraboloid: .venv/bin/activate ## Run optimizer comparison on rotated paraboloid with correlated gradients
 	@echo "Running optimizer comparison on rotated paraboloid problem..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 examples/rotated_paraboloid_compare.py --dim 64 --condition-number 100 --rotation-angle 45 --steps 200 --plot; \
-	else \
-		python3 examples/rotated_paraboloid_compare.py --dim 64 --condition-number 100 --rotation-angle 45 --steps 200 --plot; \
-	fi
+	source .venv/bin/activate && python3 examples/rotated_paraboloid_compare.py --dim 64 --condition-number 100 --rotation-angle 45 --steps 200 --plot
 	@[ -f rotated_paraboloid_comparison.png ] && open rotated_paraboloid_comparison.png || true
 
 rbp rotated-paraboloid-block: ## Run optimizer comparison on rotated paraboloid with correlated gradients, old block rotation method
 	python examples/rotated_paraboloid_compare.py --rotation-mode block --dim 64 --condition-number 100 --rotation-angle 45 --steps 200 --plot
 	@[ -f rotated_paraboloid_comparison.png ] && open rotated_paraboloid_comparison.png || true
 
-sd simple-demo: ## Run simple three-way optimizer demo on toy problem (30 seconds)
+sd simple-demo: .venv/bin/activate ## Run simple three-way optimizer demo on toy problem (30 seconds)
 	@echo "Running simple AdamW vs Muon vs MORGN demonstration..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 examples/simple_demo.py; \
-	else \
-		python3 examples/simple_demo.py; \
-	fi
+	source .venv/bin/activate && python3 examples/simple_demo.py
 
 # Test different model sizes
-test-sizes: $(LOGS_DIR)
+test-sizes: $(LOGS_DIR) .venv/bin/activate
 	@echo "Testing different model sizes with Muon..."
 	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
 		--model $(MODEL) --optimizer muon --dataset $(DATASET) \
@@ -226,7 +200,7 @@ test-sizes: $(LOGS_DIR)
 		--hidden_size 1024 --lr $(LR) --wd $(WD)
 
 # Custom training with parameters
-train-custom: $(LOGS_DIR)
+train-custom: $(LOGS_DIR) .venv/bin/activate
 	@if [ -z "$(OPTIMIZER)" ]; then echo "Error: OPTIMIZER not specified. Use: make train-custom OPTIMIZER=muon|adamw [MODEL=qwen] [HIDDEN_SIZE=896] [LR=1e-3]"; exit 1; fi
 	@echo "Training with custom parameters..."
 	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
@@ -238,14 +212,14 @@ train-custom: $(LOGS_DIR)
 		--wd $(WD)
 
 # Quick smoke test
-smoke-test: $(LOGS_DIR)
+smoke-test: $(LOGS_DIR) .venv/bin/activate
 	@echo "Running quick smoke test with small model..."
 	$(VENV_ACTIVATE) $(PYTHON) $(TRAIN_SCRIPT) \
 		--model $(MODEL) --optimizer muon --dataset $(DATASET) \
 		--hidden_size 256 --lr $(LR) --wd $(WD)
 
 # Development helpers
-check-env:
+check-env: .venv/bin/activate
 	@echo "Checking environment..."
 	$(VENV_ACTIVATE) $(PYTHON) --version
 	$(VENV_ACTIVATE) $(PYTHON) -c "import torch; import transformers; print('Environment OK')"
@@ -268,29 +242,17 @@ dclean dist-clean: clean ## make clean plus deleting any downloaded and pre-proc
 # VISUALIZATION TARGETS "viz*"
 
 
-vm viz-muon: ## Generate diagrams showing Muon optimizer architecture
+vm viz-muon: .venv/bin/activate ## Generate diagrams showing Muon optimizer architecture
 	@echo "Generating Muon optimizer diagrams..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --optimizer muon; \
-	else \
-		python3 viz/enhanced_model_diagrams.py --optimizer muon; \
-	fi
+	source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --optimizer muon
 
-va viz-adamw: ## Generate diagrams showing AdamW optimizer architecture  
+va viz-adamw: .venv/bin/activate ## Generate diagrams showing AdamW optimizer architecture  
 	@echo "Generating AdamW optimizer diagrams..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --optimizer adamw; \
-	else \
-		python3 viz/enhanced_model_diagrams.py --optimizer adamw; \
-	fi
+	source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --optimizer adamw
 
-vc viz-compare: ## Generate comparison diagrams for Muon vs AdamW
+vc viz-compare: .venv/bin/activate ## Generate comparison diagrams for Muon vs AdamW
 	@echo "Generating optimizer comparison diagrams..."
-	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --compare-optimizers; \
-	else \
-		python3 viz/enhanced_model_diagrams.py --compare-optimizers; \
-	fi
+	source .venv/bin/activate && python3 viz/enhanced_model_diagrams.py --compare-optimizers
 
 # Environment check before running training
 .PHONY: check-env list-logs smoke-test train-custom quick-compare quick-compare-plot simple-demo viz-muon viz-adamw viz-compare

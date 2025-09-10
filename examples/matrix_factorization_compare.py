@@ -52,7 +52,7 @@ def create_positive_definite_matrix(size: int,
         Q, _ = torch.linalg.qr(A)
         # Ensure det(Q)=+1 for a proper rotation
         if torch.det(Q) < 0:
-            Q[:, 0] = -Q[:, 0]
+            Q[:, 0] = -Q[:, 0] # Negate first column to ensure det(Q)=+1
 
     # Eigenvalues with desired condition number
     eigenvals = torch.logspace(0, np.log10(condition_number), size, device=qr_device)

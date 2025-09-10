@@ -340,7 +340,7 @@ class MORGN(torch.optim.Optimizer):
             assert p.ndim == 2, p.ndim
             self.state[p]["use_morgn"] = True
             m, n = p.shape
-            if m <= n:
+            if m < n:
                 left_dim = m
                 self.state[p]["transposed"] = False
             else:

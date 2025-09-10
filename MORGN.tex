@@ -1,0 +1,39 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+\title{MORGN: Momentum Orthogonalization via Recursive Gauss-Newton}
+\author{Your Name}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present MORGN, a second-order optimization algorithm for training deep neural networks. MORGN is a quasi-Newton method that approximates the inverse Hessian matrix using a recursive Gauss-Newton (RLS-style) update. This allows the optimizer to take more effective, Newton-like steps, which can lead to faster convergence and better performance on difficult optimization problems.
+\end{abstract}
+
+\section{Introduction}
+
+Second-order optimization methods have the potential to significantly accelerate the training of deep neural networks. However, traditional second-order methods, such as Newton's method, are often too computationally expensive to be practical. Quasi-Newton methods, which approximate the Hessian matrix instead of computing it directly, offer a more computationally efficient alternative.
+
+MORGN is a quasi-Newton method that uses a recursive Gauss-Newton (RLS-style) update to approximate the inverse Hessian matrix. This allows the optimizer to build up a more accurate approximation of the inverse Hessian over time, while still remaining computationally efficient.
+
+\section{Algorithm}
+
+The core of the MORGN optimizer is the left-preconditioned update for 2D parameters. For each matrix parameter $W \in \mathbb{R}^{m \times n}$, the optimizer maintains an inverse Hessian approximation $P \in \mathbb{R}^{m \times m}$ on the smaller/left dimension (transposing if $m > n$). The update is then computed as follows:
+
+\begin{enumerate}
+    \item Compute the preconditioned step: $U = P G$, where $G = \frac{\partial L}{\partial W}$ is the gradient of the loss with respect to $W$.
+    \item Update the parameter: $W \leftarrow W - \eta U$, where $\eta$ is the learning rate.
+\end{enumerate}
+
+The inverse Hessian approximation $P$ is updated at each step using a rank-1 RLS/Sherman-Morrison formula. This update incorporates new gradient information and allows the optimizer to build up a more accurate approximation of the inverse Hessian over time.
+
+\section{Conclusion}
+
+MORGN is a promising new optimization algorithm for training deep neural networks. It is a computationally efficient quasi-Newton method that has the potential to significantly accelerate the training of deep neural networks. Further research is needed to evaluate the performance of MORGN on a wide range of deep learning tasks.
+
+\end{document}

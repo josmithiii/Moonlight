@@ -63,6 +63,50 @@ def create_positive_definite_matrix(size: int,
     target_matrix = Q @ D @ Q.T
     return target_matrix.to(device), eigenvals.to(device), Q.to(device)
 
+def compute_grad_norm(model: nn.Module) -> float:
+    """Compute total gradient norm across all parameters."""
+    total_norm = 0.0
+    for param in model.parameters():
+        if param.grad is not None:
+            param_norm = param.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    return total_norm ** 0.5
+
+def check_gradient_anomalies(model: nn.Module, step: int, threshold: float = 1000.0) -> dict:
+    """Check for gradient anomalies and return summary."""
+    anomalies = {
+        'has_nan': False,
+        'has_inf': False,
+        'large_grads': [],
+        'zero_grads': [],
+        'grad_norms': {}
+    }
+    
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad = param.grad
+            grad_norm = grad.norm().item()
+            anomalies['grad_norms'][name] = grad_norm
+            
+            if torch.isnan(grad).any():
+                anomalies['has_nan'] = True
+                print(f"WARNING: NaN gradients in {name} at step {step}")
+            
+            if torch.isinf(grad).any():
+                anomalies['has_inf'] = True
+                print(f"WARNING: Inf gradients in {name} at step {step}")
+            
+            if grad_norm > threshold:
+                anomalies['large_grads'].append((name, grad_norm))
+                print(f"WARNING: Large gradients in {name} at step {step}: {grad_norm:.6f}")
+            
+            if grad_norm < 1e-8:
+                anomalies['zero_grads'].append((name, grad_norm))
+        else:
+            print(f"WARNING: No gradients for {name} at step {step}")
+    
+    return anomalies
+
 class MatrixFactorizationModel(nn.Module):
     """Simple model that learns to factorize a positive definite matrix."""
     
@@ -154,6 +198,7 @@ def train_factorization(target_matrix: torch.Tensor, optimizer_name: str,
         )
     
     losses = []
+    grad_norms = []
     criterion = nn.MSELoss()
     
     for step in range(num_steps):
@@ -186,14 +231,30 @@ def train_factorization(target_matrix: torch.Tensor, optimizer_name: str,
         # We could add regularization here, but for now keep it simple
         
         loss.backward()
+        
+        # Gradient monitoring
+        grad_norm = compute_grad_norm(model)
+        anomalies = check_gradient_anomalies(model, step, threshold=1000.0)
+        
+        # Gradient clipping with monitoring
         if clip_grad_norm and clip_grad_norm > 0.0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
+            actual_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
+            if actual_norm > clip_grad_norm:
+                print(f"  Step {step}: Clipped gradient norm from {actual_norm:.6f} to {clip_grad_norm}")
+        
         optimizer.step()
         
         losses.append(loss.item())
+        grad_norms.append(grad_norm)
         
         if step % 50 == 0:
-            print(f"  Step {step:3d}: Loss = {loss.item():.6f}")
+            print(f"  Step {step:3d}: Loss = {loss.item():.6f}, Grad Norm = {grad_norm:.6f}")
+            
+            # Report any gradient anomalies every 50 steps
+            if anomalies['large_grads']:
+                print(f"    Large gradients detected: {len(anomalies['large_grads'])} parameters")
+            if anomalies['zero_grads']:
+                print(f"    Very small gradients detected: {len(anomalies['zero_grads'])} parameters")
     
     return losses, model
 
@@ -241,6 +302,8 @@ def train_symmetric_factorization(target_matrix: torch.Tensor, optimizer_name: s
 
     criterion = nn.MSELoss()
     losses = []
+    grad_norms = []
+    
     for step in range(num_steps):
         if optimizer_name == 'muon':
             warm_step = int(muon_lr_warmdown_at * num_steps)
@@ -249,16 +312,34 @@ def train_symmetric_factorization(target_matrix: torch.Tensor, optimizer_name: s
                     old = pg['lr']
                     pg['lr'] = old * muon_lr_decay_factor
                 print(f"[MUON] Warmdown at step {step}: LR scaled by {muon_lr_decay_factor}")
+        
         optimizer.zero_grad(set_to_none=True)
-        recon = model()
-        loss = criterion(recon, target_matrix)
+        reconstructed = model()  # Call 
+        loss = criterion(reconstructed, target_matrix)
         loss.backward()
+        
+        # Gradient monitoring
+        grad_norm = compute_grad_norm(model)
+        anomalies = check_gradient_anomalies(model, step, threshold=1000.0)
+        
+        # Gradient clipping with monitoring
         if clip_grad_norm and clip_grad_norm > 0.0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
+            actual_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
+            if actual_norm > clip_grad_norm:
+                print(f"  Step {step}: Clipped gradient norm from {actual_norm:.6f} to {clip_grad_norm}")
+        
         optimizer.step()
         losses.append(loss.item())
+        grad_norms.append(grad_norm)
+        
         if step % 50 == 0:
-            print(f"  Step {step:3d}: Loss = {loss.item():.6f}")
+            print(f"  Step {step:3d}: Loss = {loss.item():.6f}, Grad Norm = {grad_norm:.6f}")
+            
+            # Report any gradient anomalies every 50 steps
+            if anomalies['large_grads']:
+                print(f"    Large gradients detected: {len(anomalies['large_grads'])} parameters")
+            if anomalies['zero_grads']:
+                print(f"    Very small gradients detected: {len(anomalies['zero_grads'])} parameters")
 
     return losses, model
 

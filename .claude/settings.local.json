@@ -4,10 +4,7 @@
       "Bash(source:*)",
       "Bash(python3:*)",
       "Bash(make:*)",
-      "Bash(CUDA_VISIBLE_DEVICES=\"\" python3 examples/quick_compare.py --steps 10 --hidden-size 64 --device cpu)",
-      "Bash(CUDA_VISIBLE_DEVICES=\"\" python3 examples/matrix_factorization_compare.py --matrix-size 32 --steps 50 --device cpu)",
-      "Bash(CUDA_VISIBLE_DEVICES=\"\" python3 examples/quick_compare.py --steps 20 --hidden-size 64 --device cpu --seed 42)",
-      "Bash(CUDA_VISIBLE_DEVICES=\"\" python3 examples/quick_compare.py --steps 10 --hidden-size 64 --device cpu --seed 42)"
+      "Bash(CUDA_VISIBLE_DEVICES=\"\" python3 examples/*)"
     ],
     "deny": [],
     "ask": []

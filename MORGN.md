@@ -36,15 +36,15 @@ The inverse Hessian approximation `P` is updated at each step using a rank-1 RLS
     approximation of the inverse Hessian over time.
 
 *   **Vectorized Woodbury Update:** The implementation uses a
-    vectorized Woodbury identity to efficiently update `P` using
-    multiple gradient directions at once. This is a sophisticated
-    technique [suggested by ChatGPT-5/Medium] that should be more
-    efficient than a series of rank-1 updates.
+    vectorized RLS/Woodbury update to efficiently update `P` using
+    multiple gradient directions at once. This batches what would
+    otherwise be a sequence of rank‑1 Sherman–Morrison updates.
 
-*   **Analytic Gauss-Newton:** There's an option to use an
-    `analytic_gn` preconditioner. This is a more direct way to compute
-    the Gauss-Newton direction, but it's only applicable to certain
-    problems (like the symmetric factorization task).
+*   **Analytic Gauss-Newton (Sylvester):** There's an option to use an
+    `analytic_gn` preconditioner for SPD matrix factorization tasks. It
+    computes the Gauss–Newton step by solving the Sylvester equation
+    `(W W^T + γI) ΔW + ΔW (W^T W + γI) = G` via eigendecompositions,
+    which more closely matches true GN than chaining two inverses.
 
 *   **Hyperparameter Complexity:** The MORGN optimizer has a large
     number of hyperparameters, and their interactions can be
@@ -67,5 +67,22 @@ The MORGN optimizer has a number of hyperparameters that can be used to control 
 *   `precond_warmup_exp`: The exponent for the preconditioner warmup.
 *   `momentum`: The momentum for the gradient.
 *   `nesterov`: Whether to use Nesterov momentum.
-*   `analytic_gn`: Whether to use the analytic Gauss-Newton preconditioner.
-*   `analytic_gamma`: The damping for the analytic Gauss-Newton preconditioner.
+*   `analytic_gn`: Whether to use the analytic Gauss-Newton preconditioner
+    (Sylvester-based; recommended for SPD factorization tasks).
+*   `analytic_gamma`: The damping `γ` for the analytic Gauss-Newton preconditioner.
+    Smaller values are more Newton-like but less stable.
+
+## Notes and Caveats
+
+* `P` and (optionally) `Q` are kept symmetric and updated with a
+  forgetting factor `λ` using the standard RLS recursion
+  `P ← (1/λ)(P − P G (λI + G^T P G)^{-1} G^T P)`. For numerical
+  stability, small ridge terms and Cholesky-based solves are used where
+  available.
+* The left-only preconditioner (`P`) approximates curvature on the
+  smaller matrix dimension. When strong right-side curvature is present
+  (e.g., rotated SPD factorization), enabling `two_sided` can provide a
+  closer quasi-Newton step.
+* Early in training, blending the raw gradient with the preconditioned
+  update (`precond_warmup_steps`, `precond_warmup_exp`) and capping the
+  update norm (`step_clamp`) improve robustness.

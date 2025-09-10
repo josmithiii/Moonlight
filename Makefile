@@ -197,6 +197,52 @@ rot2 qcfp-sym-rot2: .venv/bin/activate ## SPD factorization (rotated). MORGN two
 		--out matrix_factorization_sym_random_n512_k5000_s450_morgn2s.png $(ARGS)
 	@open matrix_factorization_sym_random_n512_k5000_s450_morgn2s.png || true
 
+# Analytic GN variants (Sylvester solve)
+rot-gn qcfp-sym-rot-gn: .venv/bin/activate ## SPD factorization (rotated) using MORGN analytic GN (Sylvester) update
+	@echo "Running SPD factorization with rotated eigenvectors (MORGN analytic GN)..."
+	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
+		--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
+		--steps 400 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
+		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
+		--morgn-analytic-gn --morgn-lr 1.0e0 --morgn-eps 1e-2 \
+		--morgn-lambda 0.997 --morgn-directions 16 \
+		--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s400_morgn_gn.png $(ARGS)
+	@open matrix_factorization_sym_random_n512_k5000_s400_morgn_gn.png || true
+
+rot2-gn qcfp-sym-rot2-gn: .venv/bin/activate ## SPD factorization (rotated), two-sided + analytic GN (left-right Sylvester)
+	@echo "Running SPD factorization with rotated eigenvectors (MORGN two-sided + analytic GN)..."
+	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
+		--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
+		--steps 400 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
+		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
+		--morgn-two-sided --morgn-analytic-gn \
+		--morgn-lr 8e-3 --morgn-lambda 0.997 --morgn-right-lambda 0.997 \
+		--morgn-eps 1e-2 --morgn-precond-warmup-steps 100 --morgn-precond-warmup-exp 0.6 \
+		--morgn-directions 16 --morgn-right-directions 16 \
+		--morgn-momentum 0.9 --morgn-nesterov \
+		--morgn-step-clamp 0.5 --morgn-clamp-warmdown-at 0.8 --morgn-clamp-decay-factor 0.2 \
+		--morgn-lr-warmdown-at 0.7 --morgn-lr-decay-factor 0.5 \
+		--morgn-lr-warmdown2-at 0.9 --morgn-lr-decay2-factor 0.1 \
+		--clip-grad-norm 1.0 --plot \
+		--out matrix_factorization_sym_random_n512_k5000_s400_morgn2s_gn.png $(ARGS)
+	@open matrix_factorization_sym_random_n512_k5000_s400_morgn2s_gn.png || true
+
+# Fair comparison: high condition number, rotated SPD; convergence based on fraction of initial loss
+fair: .venv/bin/activate ## Fair comparison tuned to highlight second-order speedups (fraction_initial metric)
+	@echo "Running fair SPD factorization comparison (high condition, rotated eigenvectors)..."
+	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
+		--symmetric --evec-mode random --matrix-size 512 --condition-number 20000 \
+		--steps 400 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
+		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
+		--morgn-two-sided --morgn-analytic-gn \
+		--morgn-precond-warmup-steps 0 --morgn-lr 0.02 --morgn-step-clamp 0.8 \
+		--morgn-lambda 0.999 --morgn-right-lambda 0.999 --morgn-analytic-gamma 1e-6 \
+		--morgn-directions 16 --morgn-right-directions 16 \
+		--clip-grad-norm 1.0 --plot \
+		--convergence-mode fraction_initial --convergence-fraction 1e-4 \
+		--out matrix_factorization_fair.png $(ARGS)
+	@open matrix_factorization_fair.png || true
+
 rp rotated-paraboloid: .venv/bin/activate ## Run optimizer comparison on rotated paraboloid with correlated gradients
 	@echo "Running optimizer comparison on rotated paraboloid problem..."
 	source .venv/bin/activate && python3 examples/rotated_paraboloid_compare.py --dim 64 --condition-number 100 --rotation-angle 45 --steps 200 --plot

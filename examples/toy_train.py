@@ -456,21 +456,27 @@ class MORGN(torch.optim.Optimizer):
 
                 # Preconditioned step
                 if analytic_gn:
-                    # Compute analytic two-sided Gauss-Newton preconditioner from current W
+                    # Analytic two-sided Gauss-Newton via Sylvester solve:
+                    # Solve (A dW + dW B = G) with A = W W^T + gamma I, B = W^T W + gamma I.
+                    # We use eigendecomposition A = U Λ U^T, B = V Σ V^T, then
+                    # dW = U ((U^T G V) ./ (Λ_i + Σ_j)) V^T. This better matches GN than A^{-1} G B^{-1}.
                     Wmat = p.T if transposed else p
                     mW, nW = Wmat.shape
-                    I_m = torch.eye(mW, device=Wmat.device, dtype=Wmat.dtype)
-                    I_n = torch.eye(nW, device=Wmat.device, dtype=Wmat.dtype)
-                    # Promote precision for MPS/FP16 cases
+                    # Promote precision for numerical stability
                     W32 = Wmat.float()
                     Gs32 = G_full_step.float()
                     A = W32 @ W32.T + analytic_gamma * torch.eye(mW, device=W32.device, dtype=W32.dtype)
                     B = W32.T @ W32 + analytic_gamma * torch.eye(nW, device=W32.device, dtype=W32.dtype)
-                    # Solve A X = Gs32 and then X B^{-1}
-                    # First left solve: A^{-1} * G
-                    U_left32 = torch.linalg.solve(A, Gs32)
-                    # Then right solve: (A^{-1} G) * B^{-1}
-                    U_step32 = torch.linalg.solve(B.T, U_left32.T).T  # solve X B^T = U_left^T
+                    # Eigendecomposition (SPD => eigh)
+                    evals_A, evecs_A = torch.linalg.eigh(A)
+                    evals_B, evecs_B = torch.linalg.eigh(B)
+                    # Transform gradient
+                    G_tilde = evecs_A.T @ Gs32 @ evecs_B
+                    # Build denominator Λ_i + Σ_j with broadcasting
+                    denom = evals_A.unsqueeze(1) + evals_B.unsqueeze(0)
+                    # Safe division
+                    X = G_tilde / (denom + 1e-12)
+                    U_step32 = evecs_A @ X @ evecs_B.T
                     U_step = U_step32.to(p.dtype)
                 else:
                     # RLS-based P/Q
@@ -511,33 +517,41 @@ class MORGN(torch.optim.Optimizer):
                             G32 = G.float()
                             I_k = torch.eye(k, device=gn32.device, dtype=gn32.dtype)
                             S = (lambda_ * I_k) + (G32.T @ gn32)
-                            # Numerical ridge (acts as Gauss–Newton damping)
-                            S = S + (1e-10 * I_k)
-                            if S.device.type == 'mps':
-                                # Try explicit inverse on MPS; fall back to CPU solve if unsupported
-                                try:
-                                    S_inv = torch.linalg.inv(S)
-                                    X = S_inv @ gn32.T  # (k, m)
-                                except Exception:
-                                    X_cpu = torch.linalg.solve(S.cpu(), gn32.T.cpu())
-                                    X = X_cpu.to(gn32.device)
-                            else:
-                                X = torch.linalg.solve(S, gn32.T)  # (k, m)
+                            S = S + (1e-8 * I_k)
+                            # Prefer Cholesky solve for SPD systems
+                            try:
+                                L, info = torch.linalg.cholesky_ex(S)
+                                X = torch.cholesky_solve(gn32.T, L)
+                            except Exception:
+                                # Fallback to generic solve
+                                if S.device.type == 'mps':
+                                    try:
+                                        S_inv = torch.linalg.inv(S)
+                                        X = S_inv @ gn32.T
+                                    except Exception:
+                                        X_cpu = torch.linalg.solve(S.cpu(), gn32.T.cpu())
+                                        X = X_cpu.to(gn32.device)
+                                else:
+                                    X = torch.linalg.solve(S, gn32.T)
                             delta = (gn32 @ X).to(gn_mat.dtype)
                         else:
                             I_k = torch.eye(k, device=gn_mat.device, dtype=gn_mat.dtype)
                             S = (lambda_ * I_k) + (G.T @ gn_mat)
-                            S = S + (gn_mat.new_tensor(1e-10) * I_k)
-                            if S.device.type == 'mps':
-                                # Try explicit inverse on MPS; fall back to CPU solve if unsupported
-                                try:
-                                    S_inv = torch.linalg.inv(S)
-                                    X = S_inv @ gn_mat.T  # (k, m)
-                                except Exception:
-                                    X_cpu = torch.linalg.solve(S.cpu(), gn_mat.T.cpu())
-                                    X = X_cpu.to(gn_mat.device)
-                            else:
-                                X = torch.linalg.solve(S, gn_mat.T)  # (k, m)
+                            S = S + (gn_mat.new_tensor(1e-8) * I_k)
+                            # Prefer Cholesky solve for SPD systems
+                            try:
+                                L, info = torch.linalg.cholesky_ex(S)
+                                X = torch.cholesky_solve(gn_mat.T, L)
+                            except Exception:
+                                if S.device.type == 'mps':
+                                    try:
+                                        S_inv = torch.linalg.inv(S)
+                                        X = S_inv @ gn_mat.T
+                                    except Exception:
+                                        X_cpu = torch.linalg.solve(S.cpu(), gn_mat.T.cpu())
+                                        X = X_cpu.to(gn_mat.device)
+                                else:
+                                    X = torch.linalg.solve(S, gn_mat.T)
                             delta = gn_mat @ X
                         # Full forgetful RLS update: P <- (1/lambda) * (P - P G S^{-1} G^T P)
                         P.sub_(delta)

@@ -526,7 +526,10 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                                 morgn_analytic_gn: bool = False,
                                 morgn_analytic_gamma: float = 1e-3,
                                 morgn_step_clamp: float = 0.0,
-                                clip_grad_norm: float = 0.0) -> dict:
+                                clip_grad_norm: float = 0.0,
+                                convergence_mode: str = 'percent_to_final',
+                                convergence_fraction: float = 0.9,
+                                convergence_target_loss: float | None = None) -> dict:
     """Compare AdamW, Muon, and MORGN on matrix factorization task."""
     print(f"\n{'='*70}")
     print(f"Matrix Factorization: AdamW vs Muon vs MORGN")
@@ -665,21 +668,40 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
     print(f"🎯 Best relative error: {best_error_optimizer.upper()} ({relative_errors[best_error_optimizer]:.4f})")
     
     # Check convergence speed
-    def find_convergence_step(losses, threshold=0.9):
+    def find_convergence_step(losses,
+                              mode: str = 'percent_to_final',
+                              fraction: float = 0.9,
+                              target_loss: float | None = None):
         if not losses:
             return len(losses)
-        final_loss = losses[-1]
         initial_loss = losses[0]
-        target_loss = final_loss + threshold * (initial_loss - final_loss)
-        
+        final_loss = losses[-1]
+        if mode == 'percent_to_final':
+            thr = final_loss + fraction * (initial_loss - final_loss)
+        elif mode == 'fraction_initial':
+            thr = initial_loss * fraction
+        elif mode == 'target_loss' and target_loss is not None:
+            thr = target_loss
+        else:
+            thr = final_loss + 0.9 * (initial_loss - final_loss)
         for i, loss in enumerate(losses):
-            if loss <= target_loss:
+            if loss <= thr:
                 return i
         return len(losses)
-    
-    convergence_steps = {name: find_convergence_step(results[name]['losses']) for name in results}
+
+    convergence_steps = {
+        name: find_convergence_step(
+            results[name]['losses'],
+            mode=convergence_mode,
+            fraction=convergence_fraction,
+            target_loss=convergence_target_loss,
+        ) for name in results
+    }
     fastest_convergence = min(convergence_steps, key=convergence_steps.get)
     print(f"🚀 Fastest convergence: {fastest_convergence.upper()} (step {convergence_steps[fastest_convergence]})")
+    print(f"   Convergence metric: {convergence_mode}"
+          f"; fraction={convergence_fraction}"
+          f"; target_loss={convergence_target_loss}")
     
     # Show convergence comparison
     for name, step in convergence_steps.items():
@@ -802,6 +824,14 @@ def main():
                        help='Use analytic two-sided Gauss-Newton preconditioner for SPD tasks')
     parser.add_argument('--morgn-analytic-gamma', type=float, default=1e-3,
                        help='Damping gamma for analytic GN preconditioner')
+    # Convergence metric options
+    parser.add_argument('--convergence-mode', type=str, default='percent_to_final',
+                       choices=['percent_to_final', 'fraction_initial', 'target_loss'],
+                       help='Convergence definition for fastest optimizer summary')
+    parser.add_argument('--convergence-fraction', type=float, default=0.9,
+                       help='Fraction parameter for convergence metric (mode-dependent)')
+    parser.add_argument('--convergence-target-loss', type=float, default=None,
+                       help='Absolute loss threshold used when mode=target_loss')
     # Global gradient clipping
     parser.add_argument('--clip-grad-norm', type=float, default=0.0,
                        help='Clip gradient norm to this value (0 disables)')
@@ -879,7 +909,10 @@ def main():
         morgn_step_clamp=args.morgn_step_clamp,
         morgn_analytic_gn=args.morgn_analytic_gn,
         morgn_analytic_gamma=args.morgn_analytic_gamma,
-        clip_grad_norm=args.clip_grad_norm
+        clip_grad_norm=args.clip_grad_norm,
+        convergence_mode=args.convergence_mode,
+        convergence_fraction=args.convergence_fraction,
+        convergence_target_loss=args.convergence_target_loss,
     )
     
     # Generate plots if requested

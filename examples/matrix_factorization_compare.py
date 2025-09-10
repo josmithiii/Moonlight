@@ -161,7 +161,6 @@ def train_factorization(target_matrix: torch.Tensor, optimizer_name: str,
                        morgn_lr: float | None = None,
                        morgn_lambda: float = 0.99,
                        morgn_eps: float = 1e-3,
-                       morgn_directions: int = 8,
                        morgn_step_clamp: float = 0.0,
                        clip_grad_norm: float = 0.0) -> tuple[list[float], MatrixFactorizationModel]:
     """Train matrix factorization with specified optimizer."""
@@ -192,7 +191,6 @@ def train_factorization(target_matrix: torch.Tensor, optimizer_name: str,
             morgn_params=morgn_params,
             lambda_=morgn_lambda,
             eps=morgn_eps,
-            directions=morgn_directions,
             step_clamp=morgn_step_clamp,
             adamw_params=adamw_params,
         )
@@ -266,7 +264,7 @@ def train_symmetric_factorization(target_matrix: torch.Tensor, optimizer_name: s
                                   muon_lr_warmdown_at: float = 0.7,
                                   muon_lr_decay_factor: float = 0.1,
                                   morgn_lr: float | None = None, morgn_lambda: float = 0.99,
-                                  morgn_eps: float = 1e-3, morgn_directions: int = 8,
+                                  morgn_eps: float = 1e-3,
                                   morgn_step_clamp: float = 0.0,
                                   clip_grad_norm: float = 0.0) -> tuple[list[float], SymmetricFactorizationModel]:
     """Train SPD factorization W such that W W^T ≈ target_matrix."""
@@ -295,7 +293,6 @@ def train_symmetric_factorization(target_matrix: torch.Tensor, optimizer_name: s
             morgn_params=morgn_params,
             lambda_=morgn_lambda,
             eps=morgn_eps,
-            directions=morgn_directions,
             step_clamp=morgn_step_clamp,
             adamw_params=adamw_params,
         )
@@ -414,7 +411,6 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                                 morgn_lr: float | None = None,
                                 morgn_lambda: float = 0.99,
                                 morgn_eps: float = 1e-3,
-                                morgn_directions: int = 8,
                                 morgn_step_clamp: float = 0.0,
                                 clip_grad_norm: float = 0.0) -> dict:
     """Compare AdamW, Muon, and MORGN on matrix factorization task."""
@@ -457,7 +453,7 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                 muon_lr_warmdown_at=muon_lr_warmdown_at,
                 muon_lr_decay_factor=muon_lr_decay_factor,
                 morgn_lr=morgn_lr, morgn_lambda=morgn_lambda, morgn_eps=morgn_eps,
-                morgn_directions=morgn_directions, morgn_step_clamp=morgn_step_clamp,
+                morgn_step_clamp=morgn_step_clamp,
                 clip_grad_norm=clip_grad_norm
             )
         else:
@@ -469,7 +465,7 @@ def compare_matrix_factorization(matrix_size: int = 64, rank: int = None,
                 muon_lr_warmdown_at=muon_lr_warmdown_at,
                 muon_lr_decay_factor=muon_lr_decay_factor,
                 morgn_lr=morgn_lr, morgn_lambda=morgn_lambda, morgn_eps=morgn_eps,
-                morgn_directions=morgn_directions, morgn_step_clamp=morgn_step_clamp,
+                morgn_step_clamp=morgn_step_clamp,
                 clip_grad_norm=clip_grad_norm
             )
         train_time = time.time() - start_time
@@ -620,8 +616,6 @@ def main():
                        help='MORGN forgetting factor lambda (default: 0.995)')
     parser.add_argument('--morgn-eps', type=float, default=1e-2,
                        help='MORGN initial inverse scale epsilon (P0=(1/eps)I)')
-    parser.add_argument('--morgn-directions', type=int, default=4,
-                       help='Number of gradient columns assimilated per step (default: 4)')
     parser.add_argument('--morgn-step-clamp', type=float, default=0.1,
                        help='Clamp step Frobenius norm to this fraction of ||W|| (default: 0.1)')
     # Global gradient clipping
@@ -684,7 +678,6 @@ def main():
         morgn_lr=args.morgn_lr,
         morgn_lambda=args.morgn_lambda,
         morgn_eps=args.morgn_eps,
-        morgn_directions=args.morgn_directions,
         morgn_step_clamp=args.morgn_step_clamp,
         clip_grad_norm=args.clip_grad_norm
     )

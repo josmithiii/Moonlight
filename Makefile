@@ -160,7 +160,11 @@ qcfp-sym-id: .venv/bin/activate ## SPD factorization with identity eigenvectors 
 	@echo "Running SPD factorization with identity eigenvectors (AdamW favored)..."
 	source .venv/bin/activate && python3 examples/matrix_factorization_compare.py \
 		--symmetric --evec-mode identity --matrix-size 512 --condition-number 5000 \
-		--steps 300 --lr 1e-2 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png
+		--steps 300 --lr 1e-2 \
+		--muon-lr 3e-3 --muon-ns-steps 8 \
+		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
+		--morgn-lr 1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-step-clamp 0.2 \
+		--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_id_n512_k5000_s300.png
 	@open matrix_factorization_sym_id_n512_k5000_s300.png || true
 
 qcfp-sym-rot: .venv/bin/activate ## SPD factorization with random eigenvectors (rotated). Muon should excel.
@@ -169,7 +173,7 @@ qcfp-sym-rot: .venv/bin/activate ## SPD factorization with random eigenvectors (
 		--symmetric --evec-mode random --matrix-size 512 --condition-number 5000 \
 		--steps 500 --lr 1e-2 --muon-lr 3e-3 --muon-ns-steps 8 \
 		--muon-lr-warmdown-at 0.7 --muon-lr-decay-factor 0.1 \
-		--morgn-lr 1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-directions 6 --morgn-step-clamp 0.2 \
+		--morgn-lr 1 --morgn-lambda 0.997 --morgn-eps 1e-2 --morgn-step-clamp 0.2 \
 		--clip-grad-norm 1.0 --plot --out matrix_factorization_sym_random_n512_k5000_s450.png
 	@open matrix_factorization_sym_random_n512_k5000_s450.png || true
 

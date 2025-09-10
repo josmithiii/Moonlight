@@ -2361,5 +2361,53 @@ c<jos@josmp25:/l/mo> codex
   - Add clamp warmdown and MORGN LR warmdown flags now.
   - Scaffold “analytic GN” mode for SPD to establish an ideal baseline.
   - Implement the deep linear regression toy (XW1W2) as a new example with a compare target.
+
+---
+
+> Here’s a focused, high‑leverage to‑do list to keep momentum.
+
+  - Lock In Baseline
+      - Record exact rot2 defaults and best run command in README and Makefile comments.
+      - Add rot2-gn target for the analytic GN baseline.
+      - Add rot2-gn target for the analytic GN baseline.
+  -
+  Targeted Sweeps (quick, 30–60 min)
+      - Directions: 12/16/24 (both sides), keep others fixed.
+      - Warmup: steps 80/120 and exp 0.6/0.8.
+      - Clamp: warmdown at 0.7/0.8; decay 0.2/0.3.
+      - LR two‑stage: stage2 at 0.85 vs 0.90; decay2 0.1 vs 0.2.
+      - Log final loss, relative error, and time per run to a CSV.
+  -
+  Instrumentation
+      - Print/update every 50 steps: ||ΔW||F/||W||F, ||PG||/||G|| for a representative layer, and current clamp/LR.
+      - Optional: estimate cond(W W^T) and cond(W^T W) for a small subset to monitor curvature learning.
+  -
+  Trust‑Region Adaptation (small feature)
+      - Add “adaptive clamp” option: decrease clamp if loss doesn’t drop by a threshold over K steps; increase slightly after sustained improvement.
+  -
+  Performance Hygiene
+      - Use cholesky_solve where possible in analytic GN path for stability/speed.
+      - Gate float32 promotions on MPS/FP16 to keep performance without risking NaNs.
+  -
+  New Toy Problem (next)
+      - Deep linear least squares (X W1 W2 ≈ Y) with rotated X; add make target (dl2).
+      - Compare AdamW, Muon, MORGN (one‑ and two‑sided, with/without momentum).
+  -
+  Harder Benchmarks
+      - SPD with condition numbers 1e3/1e4/2e4; steps 600–800. Plot time-to-threshold curves (e.g., loss < 1e‑6).
+  -
+  Documentation
+      - Add a “MORGN Quick Start” section to README with rot/rot2 commands and flag explanations.
+      - Note caveats: MPS precision, warmup rationale, two‑stage LR purpose.
+  -
+  Tests (lightweight)
+      - Add a tiny deterministic SPD run (n=64, steps=60) that asserts monotonic loss and final error threshold for MORGN; run on CPU.
+
+  If you want, I can implement:
+
+  - rot2-gn target + CSV logging of runs next,
+  - adaptive clamp flag,
+  - deep linear toy scaffold.
+
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------

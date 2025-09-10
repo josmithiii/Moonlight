@@ -2608,5 +2608,42 @@ c<jos@josmp25:/l/mo> codex
   - Git commit created with message:
     MORGN: add Sylvester-based analytic GN, stabilize RLS with Cholesky; docs updated; add fair comparison + rot-gn/rot2-gn targets
 
+---
+
+...
+
+> All set — I committed the optimizer improvements and added examples documentation.
+
+  What I did
+
+  - Committed MORGN improvements
+      - Sylvester-based analytic GN for SPD (two-sided option).
+      - Cholesky-stabilized RLS updates with safer ridge.
+      - New Make targets: rot-gn, rot2-gn, fair.
+      - Convergence metric options in matrix_factorization_compare.py.
+      - Convergence metric options in matrix_factorization_compare.py.
+  -
+  Added examples documentation
+      - Created examples/README.md documenting:
+      - quick_compare.py (make quick-compare, qcp)
+      - matrix_factorization_compare.py (make id, rot, rot2, rot-gn, rot2-gn, fair)
+      - rotated_paraboloid_compare.py (make rp, rbp)
+      - simple_demo.py (make sd)
+      - toy_train.py (make train-muon, train-adamw, compare-optimizers)
+      - experimental scripts (matrix_factorization_compare_improved.py, morgn_improved.py, toy_train_improved.py, toy_train_jos.py)
+  - Included direct run commands, flags, and device/plot notes.
+
+  Useful commands
+
+  - Run the new fair config:
+      - make fair
+      - Tune threshold: make fair ARGS="--convergence-fraction 1e-3"
+  - Try two-sided analytic GN:
+      - make rot2-gn
+  - Quick LLM comparison:
+      - make quick-compare or make qcp
+
+  If you want, I can tune the fair target further (e.g., set a shared absolute target loss and report time-to-target) or add a PD-aware convergence metric.
+
 ------------------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------------------

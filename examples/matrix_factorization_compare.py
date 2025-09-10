@@ -695,8 +695,6 @@ def main():
     print("\nMatrix factorization experiment complete!")
     print("\nKey insight: This three-way comparison shows how different")
     print("optimizers perform on matrix factorization problems.")
-    print("MORGN is currently a stub (SGD+momentum) but will be enhanced")
-    print("to demonstrate novel optimization techniques.")
 
 if __name__ == "__main__":
     main()

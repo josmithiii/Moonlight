@@ -2410,4 +2410,50 @@ c<jos@josmp25:/l/mo> codex
   - deep linear toy scaffold.
 
 ------------------------------------------------------------------------------------------------------------------------
+9/10/25 CCS [same day, same /l/mo project: `make rot`]
+
+⏺ Analysis Summary
+
+  After careful analysis of the MORGN optimizer, I found several issues and attempted improvements:
+
+  Issues Found in Original MORGN:
+
+  1. Gradient Selection Inconsistency: The optimizer selects gradient columns based on raw gradient energy but then uses momentum-smoothed gradients for the preconditioner update, causing a mismatch.
+  2. Numerical Stability: The tiny ridge term (1e-10) is insufficient for numerical stability, especially with float16/bfloat16.
+  3. Right-side Direction Selection Bug: When using two-sided preconditioning, it incorrectly uses row energy instead of column energy for selecting directions.
+  4. Missing Incremental Update in Analytic GN: The analytic Gauss-Newton mode recomputes from scratch each time instead of using incremental updates.
+
+  Improvements Attempted:
+
+  I created an improved MORGN version (morgn_improved.py) with:
+  - Consistent gradient selection
+  - Adaptive ridge regularization for better numerical stability
+  - Trust region constraints for step size control
+  - Curvature-aware learning rate adaptation
+  - Better warmup strategy that interpolates the preconditioner
+
+  Test Results:
+
+  Unfortunately, the improved version performed worse than the original on the matrix factorization benchmark. On a 512x512 matrix with condition number 5000:
+  - AdamW: Final loss 0.000000 (best)
+  - Muon: Final loss 0.000000
+  - Original MORGN: Final loss 0.001995
+  - Improved MORGN: Final loss 0.005727 (worse)
+
+  Root Cause Analysis:
+
+  The fundamental issue appears to be that MORGN's recursive
+  Gauss-Newton approach isn't well-suited for this particular
+  problem. The improvements I added (adaptive learning rate, trust
+  region) actually made convergence slower by being too conservative.
+
+  Recommendations:
+
+  1. Keep the bug fixes (consistent gradient selection, better ridge regularization) but remove the "improvements" that hurt performance (adaptive lr, trust region).
+  2. Better hyperparameter tuning is needed - MORGN seems very sensitive to the learning rate, lambda, and eps parameters.
+  3. Consider a different preconditioner update strategy - perhaps using a more aggressive forgetting factor or a different approximation to the Hessian.
+  4. The analytic GN mode might be more promising if implemented correctly with incremental updates.
+
+  The core MORGN algorithm may need fundamental algorithmic improvements rather than just implementation fixes to compete with AdamW and Muon on these problems.
+
 ------------------------------------------------------------------------------------------------------------------------

@@ -5,7 +5,7 @@
 \geometry{a4paper, margin=1in}
 
 \title{MORGN: Momentum Orthogonalization via Recursive Gauss-Newton}
-\author{Your Name}
+\author{Gemini 2.5 Pro (in \texttt{gemini} CLI)}
 
 \begin{document}
 
@@ -23,11 +23,11 @@ MORGN is a quasi-Newton method that uses a recursive Gauss-Newton (RLS-style) up
 
 \section{Algorithm}
 
-The core of the MORGN optimizer is the left-preconditioned update for 2D parameters. For each matrix parameter $W \in \mathbb{R}^{m \times n}$, the optimizer maintains an inverse Hessian approximation $P \in \mathbb{R}^{m \times m}$ on the smaller/left dimension (transposing if $m > n$). The update is then computed as follows:
+The core of the MORGN optimizer is the left-preconditioned update for 2D parameters. For each matrix parameter $W \in \boldmath{R}^{m \times n}$, the optimizer maintains an inverse Hessian approximation $P \in \boldmath{R}^{m \times m}$ on the smaller/left dimension (transposing if $m > n$). The update is then computed as follows:
 
 \begin{enumerate}
-    \item Compute the preconditioned step: $U = P G$, where $G = \frac{\partial L}{\partial W}$ is the gradient of the loss with respect to $W$.
-    \item Update the parameter: $W \leftarrow W - \eta U$, where $\eta$ is the learning rate.
+    \item Compute the preconditioned step: $U = P G$, where $G = \frac{\partial L}{\partial w}$ is the gradient of the loss with respect to the weights $w$.
+    \item Update the parameter: $w \leftarrow w - \eta U$, where $\eta$ is the learning rate.
 \end{enumerate}
 
 The inverse Hessian approximation $P$ is updated at each step using a rank-1 RLS/Sherman-Morrison formula. This update incorporates new gradient information and allows the optimizer to build up a more accurate approximation of the inverse Hessian over time.

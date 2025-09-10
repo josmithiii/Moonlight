@@ -253,14 +253,15 @@ list-logs:
 	@ls -la $(LOGS_DIR)/ 2>/dev/null || echo "No logs directory found"
 
 clean:
-	@echo "Cleaning up..."
-	rm -rf .venv
+	@echo "Cleaning up training and compiling artifacts - say make dist-clean to clean everything"
 	rm -rf $(LOGS_DIR)
 	rm -rf __pycache__
 	rm -rf examples/__pycache__
+	rm MORGN.aux MORGN.dvi MORGN.log 
 	@echo "Cleaned virtual environment, logs, cached datasets, and Python cache files"
 
 dclean dist-clean: clean ## make clean plus deleting any downloaded and pre-processed dataset files
+	rm -rf .venv
 	rm -f *.bin
 
 # VISUALIZATION TARGETS "viz*"

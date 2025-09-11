@@ -23,6 +23,7 @@ Matrix Factorization (SPD)
 - Goal: factorize a symmetric positive definite matrix; stresses curvature.
 - Key flags:
   - `--symmetric` to use SPD factorization (W W^T ≈ T)
+  - `--condition-number c` to set ratio of maximum to minimum eigenvalue to c
   - `--evec-mode {random,identity}` to choose eigenvectors
   - MORGN: `--morgn-two-sided`, `--morgn-analytic-gn`, `--morgn-analytic-gamma`
   - Convergence metric: `--convergence-mode {percent_to_final,fraction_initial,target_loss}` with `--convergence-fraction` or `--convergence-target-loss`
